@@ -106,18 +106,44 @@ Checks for missing binaries, orphaned configs, PATH issues, and font problems.
 
 ## Safety
 
-This isn't a script that silently overwrites your dotfiles and hopes for the best.
+cosyTerm modifies files in your home directory and, on Linux, runs `sudo` for package installs and for appending Fish to `/etc/shells`. Here's how it minimises blast radius.
 
-- **Backups** — every config is copied to `~/.terminal-setup-backups/<timestamp>/` before being touched
-- **Confirmations** — every install and config write asks `[y/N]` first
-- **Verification** — after each install, the binary is confirmed on PATH before writing any config that references it
-- **Mismatch detection** — a final check catches configs pointing to tools that aren't installed
-- **PATH migration** — if you switch to Fish, your Zsh/Bash PATH exports are scanned and translated
-- **Full log** — everything is recorded in `~/terminal-setup.log`
+- **Backups** — existing configs are backed up to `~/.terminal-setup-backups/<timestamp>/` before being touched. The NeoVim step **moves** (not copies) `~/.config/nvim`, `~/.local/share/nvim`, and `~/.local/state/nvim` into the backup so plugin state and your `lazy-lock.json` come back exactly if you restore. Cache (`~/.cache/nvim`) is regenerable and not backed up.
+- **Manifest** — every move/copy is recorded in `<backup>/manifest.tsv` so `cosyterm restore` can undo them exactly.
+- **Confirmations** — every install and config write asks `[y/N]` first. Replacing an existing NeoVim config requires typing `replace` — not a single keystroke.
+- **NeoVim pre-flight** — if you already have a NeoVim config, you're offered `skip` / `side-by-side` (installs to `~/.config/nvim-cosy`, original untouched) / `replace`. The safe route is the default when auto-confirming.
+- **Verification** — after each install, the binary is confirmed on PATH before writing any config that references it.
+- **Mismatch detection** — a final check catches configs pointing to tools that aren't installed.
+- **PATH migration (best-effort)** — when switching to Fish, `export PATH=` lines in your Zsh/Bash config are translated to `fish_add_path`. Conditional logic, `eval "$(...)"` blocks, and non-PATH exports are not migrated — review `~/.config/fish/config.fish` after install.
+- **Full log** — everything is recorded in `~/terminal-setup.log`.
 
 ## Recovering
 
-Everything is reversible. Your backups are timestamped:
+Every cosyTerm run writes a manifest of what it changed, so you can reverse it with one command.
+
+```bash
+# See what's available
+cosyterm restore --list
+
+# Preview what a restore would do — changes nothing on disk
+cosyterm restore --latest --dry-run
+
+# Reverse the most recent install completely
+cosyterm restore --latest
+
+# Reverse just one step (e.g. bring your NeoVim config back)
+cosyterm restore --latest --only neovim
+
+# Restore from a specific backup by timestamp
+cosyterm restore --from 20250415_143022
+
+# Verify a backup's integrity without restoring
+cosyterm restore --verify --latest
+```
+
+Under the hood: `restore` reads `manifest.tsv` from the chosen backup dir, moves your current post-install state into a `pre-restore-<timestamp>/` subdir (so a restore is itself reversible), then moves every backed-up path back where it came from.
+
+If the CLI isn't handy, the backups are plain directories — you can also `ls ~/.terminal-setup-backups/` and copy files back manually:
 
 ```bash
 ls ~/.terminal-setup-backups/
