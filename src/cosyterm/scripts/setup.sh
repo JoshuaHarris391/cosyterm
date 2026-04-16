@@ -1012,7 +1012,7 @@ _migrate_path_to_fish() {
             local tok clean=""
             for tok in $body; do
                 # Expand leading ~ so fish doesn't double-quote it into a literal.
-                [[ "$tok" == "~" || "$tok" == "~/"* ]] && tok="\$HOME${tok#\~}"
+                [[ "$tok" == \~ || "$tok" == \~/* ]] && tok="\$HOME${tok#\~}"
                 if _is_safe_path_token "$tok"; then
                     clean+=$'\n'"fish_add_path -g \"$tok\""
                 fi
@@ -1040,7 +1040,7 @@ _migrate_path_to_fish() {
                     tok="${tok#"${tok%%[![:space:]]*}"}"
                     tok="${tok%"${tok##*[![:space:]]}"}"
                     [[ -z "$tok" ]] && continue
-                    [[ "$tok" == "~" || "$tok" == "~/"* ]] && tok="\$HOME${tok#\~}"
+                    [[ "$tok" == \~ || "$tok" == \~/* ]] && tok="\$HOME${tok#\~}"
                     if _is_safe_path_token "$tok"; then
                         clean+=$'\n'"fish_add_path -g \"$tok\""
                     fi
