@@ -32,7 +32,7 @@ def main():
         epilog="Run 'cosyterm' with no arguments to start the interactive setup.",
     )
     parser.add_argument(
-        "--version",
+        "-v", "--version",
         action="version",
         version=f"cosyterm {__version__}",
     )

@@ -19,6 +19,10 @@
   <sub>You want a beautiful terminal. You don't want to spend a weekend configuring one.<br/><b>cosyTerm</b> gives you the whole thing in one command.</sub>
 </p>
 
+<p align="center">
+  <img src="assets/img/screenshot.png" width="800" alt="cosyTerm screenshot" />
+</p>
+
 ---
 
 ## The idea
