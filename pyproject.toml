@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [project]
 name = "cosyterm"
-version = "0.1.0"
+version = "0.2.0"
 description = "Your terminal, but make it cozy. One command to install a curated, Catppuccin-themed dev setup — Ghostty, Starship, eza, tmux, NeoVim, and more."
 readme = "README.md"
 license = { text = "MIT" }
