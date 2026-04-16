@@ -416,14 +416,14 @@ install_nerd_font() {
     echo -e "  ${BOLD}${CYAN}Fun fonts${NC}"
     for key in "${FUN_FONTS[@]}"; do
         echo -e "  ${BOLD}$i)${NC} $(font_lookup "$key" display)"
-        ((i++))
+        i=$((i+1))
     done
 
     echo ""
     echo -e "  ${BOLD}${CYAN}Developer fonts${NC}"
     for key in "${DEFAULT_FONTS[@]}"; do
         echo -e "  ${BOLD}$i)${NC} $(font_lookup "$key" display)"
-        ((i++))
+        i=$((i+1))
     done
 
     echo ""
@@ -991,13 +991,13 @@ _migrate_path_to_fish() {
         # ── nvm: fish needs the nvm.fish plugin; don't emit anything ──
         elif [[ "$line" =~ NVM_DIR ]] || [[ "$line" =~ nvm\.sh ]]; then
             todo_lines+=("nvm detected: install the nvm.fish plugin (https://github.com/jorgebucaran/nvm.fish). Source line: $line")
-            ((skipped++))
+            skipped=$((skipped+1))
             continue
 
         # ── conda: surface as a post-install step ──
         elif [[ "$line" =~ conda ]]; then
             todo_lines+=("conda detected: run 'conda init fish' to set up conda for fish. Source line: $line")
-            ((skipped++))
+            skipped=$((skipped+1))
             continue
 
         # ── zsh tied-array path=(...) ──
@@ -1054,10 +1054,10 @@ _migrate_path_to_fish() {
             while IFS= read -r emitted; do
                 [[ -n "$emitted" ]] && fish_lines+=("$emitted")
             done <<< "$translated"
-            ((added++))
+            added=$((added+1))
         else
             fish_lines+=("# SKIPPED (couldn't parse): $line")
-            ((skipped++))
+            skipped=$((skipped+1))
         fi
     done
 
@@ -1854,13 +1854,13 @@ verify_setup() {
             log "  Or remove the starship init line from:"
             local f
             for f in "${shell_configs[@]}"; do log "    $f"; done
-            ((issues++))
+            issues=$((issues+1))
         fi
 
         if grep -lq "eza" "${shell_configs[@]}" 2>/dev/null && ! has_cmd eza; then
             log_error "MISMATCH: a shell config references 'eza' but it's not installed!"
             log "  The aliases won't work. Fix: brew install eza"
-            ((issues++))
+            issues=$((issues+1))
         fi
     fi
 
@@ -1872,7 +1872,7 @@ verify_setup() {
             log "  Ghostty may fail to open or fall back to your default shell."
             log "  Fix: brew install fish"
             log "  Or remove the 'command' line from $ghostty_config"
-            ((issues++))
+            issues=$((issues+1))
         fi
 
         # Check the font referenced in Ghostty config is likely installed
@@ -1909,20 +1909,20 @@ verify_setup() {
             log_error "MISMATCH: .tmux.conf references Catppuccin but theme is not installed!"
             log "  Fix: mkdir -p ${CONFIG_DIR}/tmux/plugins/catppuccin"
             log "       git clone -b v2.3.0 https://github.com/catppuccin/tmux.git ${CONFIG_DIR}/tmux/plugins/catppuccin/tmux"
-            ((issues++))
+            issues=$((issues+1))
         fi
 
         if grep -q "tpm/tpm" "$HOME/.tmux.conf" 2>/dev/null && [[ ! -d "$HOME/.tmux/plugins/tpm" ]]; then
             log_error "MISMATCH: .tmux.conf references TPM but it's not installed!"
             log "  Fix: git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm"
-            ((issues++))
+            issues=$((issues+1))
         fi
     fi
 
     # ── Check: LazyVim config exists but nvim not installed ──
     if [[ -d "$CONFIG_DIR/nvim" ]] && ! has_cmd nvim; then
         log_warn "LazyVim config directory exists but NeoVim is not installed."
-        ((issues++))
+        issues=$((issues+1))
     fi
 
     # ── Results ──
