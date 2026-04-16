@@ -594,14 +594,22 @@ install_shell() {
     echo "  3) Skip  — keep your current shell"
     read -rp "  Choice [1/2/3] (default: 1): " shell_choice
 
+    # Validate — empty input accepts the default (fish). Anything other than
+    # 1/2/3 is treated as skip, because silently changing the default shell
+    # on a typo is the single most invasive thing this script could do.
     case "$shell_choice" in
+        ""|1) SHELL_CHOICE="fish" ;;
         2) SHELL_CHOICE="zsh" ;;
         3)
             SHELL_CHOICE="skip"
             log_warn "Skipped shell installation. Starship will still work with your current shell."
             return 0
             ;;
-        *) SHELL_CHOICE="fish" ;;
+        *)
+            SHELL_CHOICE="skip"
+            log_warn "Unrecognised choice '$shell_choice' — skipping shell installation. Re-run cosyterm to pick a shell."
+            return 0
+            ;;
     esac
 
     # Install the chosen shell if not present
