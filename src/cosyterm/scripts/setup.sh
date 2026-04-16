@@ -12,8 +12,6 @@
 #   5. eza                         — Modern replacement for 'ls'
 #   6. tmux + Catppuccin           — Terminal multiplexer with Mocha theme
 #   7. NeoVim + LazyVim            — Terminal-based editor with IDE features
-#   8. Claude Code NeoVim plugin   — AI assistant integration for NeoVim
-#   9. Shell aliases & config      — Productivity shortcuts
 #
 # Safety features:
 #   - Backs up all existing config files before overwriting
@@ -303,7 +301,7 @@ preflight() {
 # STEP 1: NERD FONT (choose your font)
 # =============================================================================
 install_nerd_font() {
-    log_section "Step 1/8: Nerd Font"
+    log_section "Step 1/7: Nerd Font"
 
     log "Nerd Fonts add icons and glyphs to monospace fonts. They're required"
     log "for Starship prompt icons and eza file icons to render properly."
@@ -417,7 +415,7 @@ install_nerd_font() {
 # STEP 2: GHOSTTY
 # =============================================================================
 install_ghostty() {
-    log_section "Step 2/8: Ghostty terminal emulator"
+    log_section "Step 2/7: Ghostty terminal emulator"
 
     log "Ghostty is a GPU-accelerated terminal emulator by Mitchell Hashimoto."
     log "It's fast, cross-platform, and has a simple config file."
@@ -500,7 +498,7 @@ GHOSTTY_EOF
 # STEP 3: SHELL (Fish or Zsh)
 # =============================================================================
 install_shell() {
-    log_section "Step 3/8: Shell setup"
+    log_section "Step 3/7: Shell setup"
 
     log "The guide recommends Fish shell for its out-of-the-box experience"
     log "(autosuggestions, syntax highlighting, tab completions)."
@@ -778,7 +776,7 @@ _migrate_path_to_fish() {
 # STEP 4: STARSHIP PROMPT
 # =============================================================================
 install_starship() {
-    log_section "Step 4/8: Starship prompt"
+    log_section "Step 4/7: Starship prompt"
 
     log "Starship replaces your default shell prompt with a context-aware one."
     log "It shows git branch, language versions, cloud context, and more."
@@ -1027,7 +1025,7 @@ _hook_starship() {
 # STEP 5: EZA (modern ls replacement)
 # =============================================================================
 install_eza() {
-    log_section "Step 5/8: eza (modern ls replacement)"
+    log_section "Step 5/7: eza (modern ls replacement)"
 
     log "eza replaces 'ls' with colored output, file icons, git status,"
     log "and tree views. Works best with a Nerd Font installed."
@@ -1137,10 +1135,10 @@ ZSH_EZA
 }
 
 # =============================================================================
-# STEP 6/8: TMUX + CATPPUCCIN
+# STEP 6/7: TMUX + CATPPUCCIN
 # =============================================================================
 install_tmux() {
-    log_section "Step 6/8: tmux + Catppuccin Mocha"
+    log_section "Step 6/7: tmux + Catppuccin Mocha"
 
     log "tmux is a terminal multiplexer — it lets you split panes, create"
     log "windows, and persist sessions that survive disconnects."
@@ -1285,10 +1283,10 @@ TMUX_EOF
 }
 
 # =============================================================================
-# STEP 7/8: NEOVIM + LAZYVIM
+# STEP 7/7: NEOVIM + LAZYVIM
 # =============================================================================
 install_neovim() {
-    log_section "Step 7/8: NeoVim + LazyVim"
+    log_section "Step 7/7: NeoVim + LazyVim"
 
     log "NeoVim is a modern fork of Vim. LazyVim is a pre-configured setup"
     log "that gives you IDE features out of the box: file explorer, fuzzy find,"
@@ -1341,135 +1339,6 @@ install_neovim() {
             log_success "LazyVim installed. Run 'nvim' to complete plugin installation."
         else
             log_warn "Skipped LazyVim."
-        fi
-    fi
-}
-
-# =============================================================================
-# STEP 7: CLAUDE CODE NEOVIM PLUGIN
-# =============================================================================
-install_claude_code_nvim() {
-    log_section "Step 8/8: Claude Code NeoVim plugin"
-
-    log "claude-code.nvim integrates Claude Code directly into NeoVim."
-    log "Toggle it with <leader>ac to get AI assistance while editing."
-    log "Requires: Claude Code CLI installed separately (npm install -g @anthropic-ai/claude-code)"
-
-    local nvim_config="$HOME/.config/nvim"
-    local plugin_dir="$nvim_config/lua/plugins"
-
-    if [[ ! -d "$nvim_config" ]]; then
-        log_warn "NeoVim config directory not found. Install NeoVim + LazyVim first."
-        return 0
-    fi
-
-    if [[ -f "$plugin_dir/claude-code.lua" ]]; then
-        log_success "Claude Code NeoVim plugin config already exists"
-        return 0
-    fi
-
-    if confirm "Add Claude Code plugin to your LazyVim config?"; then
-        mkdir -p "$plugin_dir"
-
-        cat > "$plugin_dir/claude-code.lua" << 'CLAUDE_EOF'
--- Claude Code NeoVim integration
--- Toggle with <leader>ac
--- Requires: npm install -g @anthropic-ai/claude-code
-return {
-    "greggh/claude-code.nvim",
-    dependencies = {
-        "nvim-lua/plenary.nvim",
-    },
-    keys = {
-        { "<leader>ac", "<cmd>ClaudeCode<cr>", desc = "Toggle Claude Code" },
-    },
-    config = function()
-        require("claude-code").setup({
-            window = {
-                position = "float",
-                float = {
-                    width = "80%",
-                    height = "80%",
-                    border = "rounded",
-                },
-            },
-            refresh = {
-                enable = true,
-                show_notifications = true,
-            },
-        })
-    end,
-}
-CLAUDE_EOF
-
-        log_success "Claude Code plugin config written to $plugin_dir/claude-code.lua"
-        log "Run 'nvim' and the plugin will auto-install on next launch."
-
-        if ! has_cmd claude; then
-            log_warn "Claude Code CLI not found on PATH."
-            log "  Install it with: npm install -g @anthropic-ai/claude-code"
-        fi
-    else
-        log_warn "Skipped Claude Code plugin."
-    fi
-}
-
-# =============================================================================
-# BONUS: SHELL ALIASES
-# =============================================================================
-install_aliases() {
-    log_section "Bonus: Shell aliases"
-
-    log "Adding common productivity aliases for directory navigation,"
-    log "git shortcuts, and tool abbreviations."
-
-    if [[ "$SHELL_CHOICE" == "skip" ]]; then
-        log_warn "No shell selected — skipping aliases."
-        return 0
-    fi
-
-    if ! confirm "Add productivity aliases (git shortcuts, directory nav, tool aliases)?"; then
-        return 0
-    fi
-
-    local alias_block
-    read -r -d '' alias_block << 'ALIASES' || true
-
-# Directory navigation
-alias ..='cd ..'
-alias ...='cd ../..'
-alias ....='cd ../../..'
-
-# Tool shortcuts
-alias v='nvim'
-alias d='docker'
-
-# Git shortcuts
-alias g='git'
-alias gcm='git commit -m'
-alias gcam='git commit -a -m'
-alias gcad='git commit -a --amend'
-ALIASES
-
-    if [[ "$SHELL_CHOICE" == "fish" ]]; then
-        local fish_config="$HOME/.config/fish/config.fish"
-        if ! grep -q "alias gcm=" "$fish_config" 2>/dev/null; then
-            echo "" >> "$fish_config"
-            echo "# Productivity aliases" >> "$fish_config"
-            echo "$alias_block" >> "$fish_config"
-            log_success "Aliases added to Fish config"
-        else
-            log_success "Aliases already present"
-        fi
-    elif [[ "$SHELL_CHOICE" == "zsh" ]]; then
-        local zshrc="$HOME/.zshrc"
-        if ! grep -q "alias gcm=" "$zshrc" 2>/dev/null; then
-            echo "" >> "$zshrc"
-            echo "# Productivity aliases" >> "$zshrc"
-            echo "$alias_block" >> "$zshrc"
-            log_success "Aliases added to .zshrc"
-        else
-            log_success "Aliases already present"
         fi
     fi
 }
@@ -1562,12 +1431,6 @@ verify_setup() {
         fi
     fi
 
-    # ── Check: Claude Code plugin exists but nvim not installed ──
-    if [[ -f "$HOME/.config/nvim/lua/plugins/claude-code.lua" ]] && ! has_cmd nvim; then
-        log_warn "Claude Code plugin config exists but NeoVim is not installed."
-        ((issues++))
-    fi
-
     # ── Check: LazyVim config exists but nvim not installed ──
     if [[ -d "$HOME/.config/nvim" ]] && ! has_cmd nvim; then
         log_warn "LazyVim config directory exists but NeoVim is not installed."
@@ -1610,8 +1473,6 @@ print_summary() {
     has_cmd nvim      && echo -e "  ${GREEN}✓${NC} NeoVim"                           || echo -e "  ${YELLOW}○${NC} NeoVim (not installed)"
     [[ -d "$HOME/.config/nvim" ]] \
                       && echo -e "  ${GREEN}✓${NC} LazyVim config"                 || echo -e "  ${YELLOW}○${NC} LazyVim"
-    [[ -f "$HOME/.config/nvim/lua/plugins/claude-code.lua" ]] \
-                      && echo -e "  ${GREEN}✓${NC} Claude Code NeoVim plugin"      || echo -e "  ${YELLOW}○${NC} Claude Code plugin"
 
     echo ""
 
@@ -1650,10 +1511,8 @@ main() {
             eza)      install_eza ;;
             tmux)     install_tmux ;;
             neovim)   install_neovim ;;
-            claude)   install_claude_code_nvim ;;
-            aliases)  install_aliases ;;
             *) echo "Unknown step: $step"
-               echo "Available: font, ghostty, shell, starship, eza, tmux, neovim, claude, aliases"
+               echo "Available: font, ghostty, shell, starship, eza, tmux, neovim"
                exit 1 ;;
         esac
         if [[ -d "$BACKUP_DIR" ]]; then
@@ -1694,8 +1553,6 @@ main() {
     install_eza
     install_tmux
     install_neovim
-    install_claude_code_nvim
-    install_aliases
     verify_setup
     print_summary
 }

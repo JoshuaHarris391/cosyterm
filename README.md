@@ -56,7 +56,6 @@ A curated, cohesive terminal — every piece themed with **[Catppuccin Mocha](ht
 | **[eza](https://eza.rocks)** | `ls` with icons, colors, git status, and tree views |
 | **[tmux](https://github.com/tmux/tmux)** | Terminal multiplexer with pastel status bar at top |
 | **[NeoVim](https://neovim.io) + [LazyVim](https://lazyvim.github.io)** | IDE-grade editor, pre-configured, zero setup |
-| **Claude Code** | AI assistance inside NeoVim |
 
 ## How it works
 
@@ -64,21 +63,20 @@ A curated, cohesive terminal — every piece themed with **[Catppuccin Mocha](ht
 cosyterm
 ```
 
-An interactive installer walks you through 8 steps. Every step asks before doing anything. Skip what you don't want. Nothing is installed silently.
+An interactive installer walks you through 7 steps. Every step asks before doing anything. Skip what you don't want. Nothing is installed silently.
 
 ```
 ╔═══════════════════════════════════════════════════════════════╗
 ║           cosyTerm — your terminal, but make it cozy         ║
 ╚═══════════════════════════════════════════════════════════════╝
 
-Step 1/8 ▶ Pick a font
-Step 2/8 ▶ Ghostty terminal
-Step 3/8 ▶ Shell (Zsh default)
-Step 4/8 ▶ Starship prompt
-Step 5/8 ▶ eza (better ls)
-Step 6/8 ▶ tmux + Catppuccin
-Step 7/8 ▶ NeoVim + LazyVim
-Step 8/8 ▶ Claude Code plugin
+Step 1/7 ▶ Pick a font
+Step 2/7 ▶ Ghostty terminal
+Step 3/7 ▶ Shell (Zsh default)
+Step 4/7 ▶ Starship prompt
+Step 5/7 ▶ eza (better ls)
+Step 6/7 ▶ tmux + Catppuccin
+Step 7/7 ▶ NeoVim + LazyVim
 ```
 
 When it's done, close your terminal, open Ghostty, and everything just works.

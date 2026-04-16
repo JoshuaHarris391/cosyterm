@@ -36,13 +36,11 @@ def setup() -> int:
     installing and configuring:
       - Nerd Font (your choice of 10 fonts)
       - Ghostty terminal emulator
-      - Zsh or Fish shell
+      - Zsh or Fish shell (with PATH migration to Fish)
       - Starship prompt
       - eza (modern ls)
       - tmux with Catppuccin Mocha theme
       - NeoVim + LazyVim
-      - Claude Code NeoVim plugin
-      - Shell aliases and PATH migration
 
     Every destructive step requires confirmation. All existing configs
     are backed up before being modified.
@@ -82,7 +80,7 @@ def setup() -> int:
 
 INSTALL_STEPS = [
     "font", "ghostty", "shell", "starship", "eza",
-    "tmux", "neovim", "claude", "aliases",
+    "tmux", "neovim",
 ]
 
 
