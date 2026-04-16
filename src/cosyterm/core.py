@@ -34,7 +34,7 @@ def setup() -> int:
 
     This launches the bundled setup.sh script which walks you through
     installing and configuring:
-      - Nerd Font (your choice of 6 fonts)
+      - Nerd Font (your choice of 10 fonts)
       - Ghostty terminal emulator
       - Zsh or Fish shell
       - Starship prompt
@@ -77,6 +77,40 @@ def setup() -> int:
         return result.returncode
     except KeyboardInterrupt:
         print("\n\nSetup cancelled. Run 'cosyterm' to start again.")
+        return 130
+
+
+INSTALL_STEPS = [
+    "font", "ghostty", "shell", "starship", "eza",
+    "tmux", "neovim", "claude", "aliases",
+]
+
+
+def install_step(step: str) -> int:
+    """Re-run a single setup step (e.g. 'font', 'ghostty', 'starship')."""
+    script = _get_script_path()
+
+    if not script.exists():
+        print(f"Error: Setup script not found at {script}", file=sys.stderr)
+        return 1
+
+    bash = _check_bash()
+    if not bash:
+        print("Error: bash is required but not found on your system.", file=sys.stderr)
+        return 1
+
+    os.chmod(script, 0o755)
+
+    try:
+        result = subprocess.run(
+            [bash, str(script), step],
+            stdin=sys.stdin,
+            stdout=sys.stdout,
+            stderr=sys.stderr,
+        )
+        return result.returncode
+    except KeyboardInterrupt:
+        print("\n\nInstall cancelled.")
         return 130
 
 

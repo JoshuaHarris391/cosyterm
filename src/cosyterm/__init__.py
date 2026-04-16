@@ -16,6 +16,6 @@ Or from Python:
 
 __version__ = "0.1.0"
 
-from cosyterm.core import setup, doctor
+from cosyterm.core import setup, doctor, install_step, INSTALL_STEPS
 
-__all__ = ["setup", "doctor", "__version__"]
+__all__ = ["setup", "doctor", "install_step", "INSTALL_STEPS", "__version__"]

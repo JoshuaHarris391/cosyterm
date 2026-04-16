@@ -50,14 +50,23 @@ FONT_FILE_GLOB="" # glob pattern to check if already installed on Linux
 # Each font has: display text, Homebrew cask name, font-family string, file glob.
 #
 # Nerd Fonts releases: https://github.com/ryanoasis/nerd-fonts/releases
-FONT_OPTIONS=(
-    "FiraCode"
+DEFAULT_FONTS=(
     "JetBrainsMono"
-    "UbuntuMono"
+    "CommitMono"
     "CascadiaCode"
-    "SourceCodePro"
     "Hack"
+    "FiraCode"
 )
+
+FUN_FONTS=(
+    "OpenDyslexic"
+    "Monofur"
+    "Agave"
+    "0xProto"
+    "Hasklig"
+)
+
+FONT_OPTIONS=("${DEFAULT_FONTS[@]}" "${FUN_FONTS[@]}")
 
 # Usage: font_lookup <key> <field>
 # Fields: display, cask, family, glob
@@ -65,35 +74,55 @@ font_lookup() {
     local key="$1"
     local field="$2"
     case "${key}:${field}" in
-        FiraCode:display)       echo "Fira Code         — clean, modern, with programming ligatures" ;;
-        FiraCode:cask)          echo "font-fira-code-nerd-font" ;;
-        FiraCode:family)        echo "FiraCode Nerd Font Mono" ;;
-        FiraCode:glob)          echo "*FiraCode*" ;;
-
         JetBrainsMono:display)  echo "JetBrains Mono    — designed for developers, excellent readability" ;;
         JetBrainsMono:cask)     echo "font-jetbrains-mono-nerd-font" ;;
         JetBrainsMono:family)   echo "JetBrainsMono Nerd Font Mono" ;;
         JetBrainsMono:glob)     echo "*JetBrainsMono*" ;;
 
-        UbuntuMono:display)     echo "Ubuntu Mono       — the Ubuntu default, friendly and distinctive" ;;
-        UbuntuMono:cask)        echo "font-ubuntu-mono-nerd-font" ;;
-        UbuntuMono:family)      echo "UbuntuMono Nerd Font Mono" ;;
-        UbuntuMono:glob)        echo "*UbuntuMono*" ;;
+        CommitMono:display)     echo "Commit Mono       — clean, neutral, open-source by Eigil Nikolajsen" ;;
+        CommitMono:cask)        echo "font-commit-mono-nerd-font" ;;
+        CommitMono:family)      echo "CommitMono Nerd Font Mono" ;;
+        CommitMono:glob)        echo "*CommitMono*" ;;
 
         CascadiaCode:display)   echo "Cascadia Code     — Microsoft's terminal font, ligature support" ;;
         CascadiaCode:cask)      echo "font-caskaydia-cove-nerd-font" ;;
         CascadiaCode:family)    echo "CaskaydiaCove Nerd Font Mono" ;;
         CascadiaCode:glob)      echo "*CaskaydiaCove*" ;;
 
-        SourceCodePro:display)  echo "Source Code Pro   — Adobe's open-source monospace, very legible" ;;
-        SourceCodePro:cask)     echo "font-sauce-code-pro-nerd-font" ;;
-        SourceCodePro:family)   echo "SauceCodePro Nerd Font Mono" ;;
-        SourceCodePro:glob)     echo "*SauceCodePro*" ;;
-
         Hack:display)           echo "Hack              — optimised for source code, no-nonsense design" ;;
         Hack:cask)              echo "font-hack-nerd-font" ;;
         Hack:family)            echo "Hack Nerd Font Mono" ;;
         Hack:glob)              echo "*Hack*" ;;
+
+        FiraCode:display)       echo "Fira Code         — clean, modern, with programming ligatures" ;;
+        FiraCode:cask)          echo "font-fira-code-nerd-font" ;;
+        FiraCode:family)        echo "FiraCode Nerd Font Mono" ;;
+        FiraCode:glob)          echo "*FiraCode*" ;;
+
+        OpenDyslexic:display)   echo "OpenDyslexic Mono — designed to improve readability for dyslexic readers" ;;
+        OpenDyslexic:cask)      echo "font-opendyslexic-nerd-font" ;;
+        OpenDyslexic:family)    echo "OpenDyslexicM Nerd Font Mono" ;;
+        OpenDyslexic:glob)      echo "*OpenDyslexic*" ;;
+
+        Monofur:display)        echo "Monofur           — playful, rounded, hand-drawn character" ;;
+        Monofur:cask)           echo "font-monofur-nerd-font" ;;
+        Monofur:family)         echo "Monofur Nerd Font Mono" ;;
+        Monofur:glob)           echo "*Monofur*" ;;
+
+        Agave:display)          echo "Agave             — small, compact, minimal with a retro feel" ;;
+        Agave:cask)             echo "font-agave-nerd-font" ;;
+        Agave:family)           echo "Agave Nerd Font Mono" ;;
+        Agave:glob)             echo "*Agave*" ;;
+
+        0xProto:display)        echo "0xProto           — coding font focused on character distinction" ;;
+        0xProto:cask)           echo "font-0xproto-nerd-font" ;;
+        0xProto:family)         echo "0xProto Nerd Font Mono" ;;
+        0xProto:glob)           echo "*0xProto*" ;;
+
+        Hasklig:display)        echo "Hasklig           — Source Code Pro with ligatures (Hasklug in Nerd Fonts)" ;;
+        Hasklig:cask)           echo "font-hasklug-nerd-font" ;;
+        Hasklig:family)         echo "Hasklug Nerd Font Mono" ;;
+        Hasklig:glob)           echo "*Hasklug*" ;;
 
         *) echo "" ;;
     esac
@@ -284,10 +313,21 @@ install_nerd_font() {
     echo -e "${BOLD}${YELLOW}▶ Which Nerd Font would you like to install?${NC}"
     echo ""
     local i=1
-    for key in "${FONT_OPTIONS[@]}"; do
+
+    echo -e "  ${BOLD}${CYAN}Developer fonts${NC}"
+    for key in "${DEFAULT_FONTS[@]}"; do
         echo -e "  ${BOLD}$i)${NC} $(font_lookup "$key" display)"
         ((i++))
     done
+
+    echo ""
+    echo -e "  ${BOLD}${CYAN}Fun fonts${NC}"
+    for key in "${FUN_FONTS[@]}"; do
+        echo -e "  ${BOLD}$i)${NC} $(font_lookup "$key" display)"
+        ((i++))
+    done
+
+    echo ""
     echo -e "  ${BOLD}$i)${NC} Skip — I'll install a Nerd Font myself"
     echo ""
     read -rp "  Choice [1-$i]: " font_choice
@@ -313,16 +353,16 @@ install_nerd_font() {
     fi
 
     # ── macOS install via Homebrew cask ──
+    local font_installed=false
     if [[ "$OS" == "macos" ]]; then
         if brew list --cask "$FONT_BREW_CASK" &>/dev/null 2>&1; then
             log_success "$FONT_NAME Nerd Font is already installed via Homebrew"
-            return 0
-        fi
-
-        if confirm "Install $FONT_NAME Nerd Font via Homebrew cask?"; then
+            font_installed=true
+        elif confirm "Install $FONT_NAME Nerd Font via Homebrew cask?"; then
             log "Installing $FONT_NAME Nerd Font..."
             brew install --cask "$FONT_BREW_CASK"
-            log_success "Font installed. Select '${BOLD}$FONT_FAMILY${NC}' in your terminal settings."
+            log_success "Font installed"
+            font_installed=true
         else
             log_warn "Skipped font installation."
         fi
@@ -332,10 +372,8 @@ install_nerd_font() {
         local font_dir="$HOME/.local/share/fonts"
         if ls "$font_dir"/$FONT_FILE_GLOB &>/dev/null 2>&1; then
             log_success "$FONT_NAME Nerd Font is already installed in $font_dir"
-            return 0
-        fi
-
-        if confirm "Download and install $FONT_NAME Nerd Font to $font_dir?"; then
+            font_installed=true
+        elif confirm "Download and install $FONT_NAME Nerd Font to $font_dir?"; then
             local tmp_dir
             tmp_dir=$(mktemp -d)
             log "Downloading $FONT_NAME Nerd Font..."
@@ -351,13 +389,26 @@ install_nerd_font() {
                 fi
 
                 log_success "Font installed to $font_dir"
-                log "Select '${BOLD}$FONT_FAMILY${NC}' in your terminal settings."
+                font_installed=true
             else
                 log_error "Failed to download font. Check your internet connection."
                 rm -rf "$tmp_dir"
             fi
         else
             log_warn "Skipped font installation."
+        fi
+    fi
+
+    # Update Ghostty config if it exists
+    if $font_installed && [[ -n "$FONT_FAMILY" ]]; then
+        local ghostty_config="$HOME/.config/ghostty/config"
+        if [[ -f "$ghostty_config" ]]; then
+            if grep -q "^font-family" "$ghostty_config"; then
+                backup_if_exists "$ghostty_config"
+                sed -i.bak "s/^font-family = .*/font-family = ${FONT_FAMILY}/" "$ghostty_config"
+                rm -f "$ghostty_config.bak"
+                log_success "Updated Ghostty config to use ${BOLD}$FONT_FAMILY${NC}"
+            fi
         fi
     fi
 }
@@ -424,7 +475,7 @@ install_ghostty() {
         fi
 
         # Determine font family for Ghostty config
-        local ghostty_font="${FONT_FAMILY:-FiraCode Nerd Font Mono}"
+        local ghostty_font="${FONT_FAMILY:-JetBrainsMono Nerd Font Mono}"
 
         cat > "$ghostty_config" << GHOSTTY_EOF
 # Ghostty configuration
@@ -1584,6 +1635,35 @@ print_summary() {
 # MAIN
 # =============================================================================
 main() {
+    local step="${1:-}"
+
+    # Single-step mode: run just one install step
+    if [[ -n "$step" ]]; then
+        mkdir -p "$(dirname "$LOG_FILE")"
+        echo "=== cosyterm install $step — $(date) ===" > "$LOG_FILE"
+        preflight
+        case "$step" in
+            font)     install_nerd_font ;;
+            ghostty)  install_ghostty ;;
+            shell)    install_shell ;;
+            starship) install_starship ;;
+            eza)      install_eza ;;
+            tmux)     install_tmux ;;
+            neovim)   install_neovim ;;
+            claude)   install_claude_code_nvim ;;
+            aliases)  install_aliases ;;
+            *) echo "Unknown step: $step"
+               echo "Available: font, ghostty, shell, starship, eza, tmux, neovim, claude, aliases"
+               exit 1 ;;
+        esac
+        if [[ -d "$BACKUP_DIR" ]]; then
+            echo ""
+            log "Backups saved to: ${BOLD}$BACKUP_DIR${NC}"
+        fi
+        return
+    fi
+
+    # Full setup mode
     echo ""
     echo -e "${BOLD}${CYAN}╔═══════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${BOLD}${CYAN}║           Terminal Setup Installer                           ║${NC}"

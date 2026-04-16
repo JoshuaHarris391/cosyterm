@@ -45,7 +45,7 @@ A curated, cohesive terminal — every piece themed with **[Catppuccin Mocha](ht
 
 | | Tool | What it does |
 |---|---|---|
-| 🔤 | **Nerd Font** | Your choice of 6 patched fonts — FiraCode, JetBrains Mono, Hack, and more |
+| 🔤 | **Nerd Font** | Your choice of 10 patched fonts — JetBrains Mono, Commit Mono, Cascadia Code, and more |
 | 👻 | **[Ghostty](https://ghostty.org)** | GPU-accelerated terminal emulator by Mitchell Hashimoto |
 | 🐚 | **Zsh or Fish** | Zsh (default, POSIX) or Fish (modern, opinionated) |
 | 🚀 | **[Starship](https://starship.rs)** | Cross-shell prompt — git, language versions, right-aligned and clean |

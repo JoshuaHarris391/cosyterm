@@ -11,7 +11,7 @@ import sys
 import argparse
 
 from cosyterm import __version__
-from cosyterm.core import setup, doctor
+from cosyterm.core import setup, doctor, install_step, INSTALL_STEPS
 
 
 BANNER = r"""
@@ -49,6 +49,16 @@ def main():
         help="Check your terminal setup for issues and mismatches",
     )
 
+    install_parser = subparsers.add_parser(
+        "install",
+        help="Re-run a specific setup step",
+    )
+    install_parser.add_argument(
+        "step",
+        choices=INSTALL_STEPS,
+        help="Step to install (e.g. font, ghostty, starship)",
+    )
+
     args = parser.parse_args()
 
     # Print the banner
@@ -59,6 +69,8 @@ def main():
     if args.command == "doctor":
         issues = doctor()
         sys.exit(1 if issues > 0 else 0)
+    elif args.command == "install":
+        sys.exit(install_step(args.step))
     else:
         # Default action: run setup
         sys.exit(setup())
