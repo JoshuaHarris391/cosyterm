@@ -716,17 +716,23 @@ _migrate_path_to_fish() {
         return 0
     fi
 
-    # Extract PATH-related lines from all config files
+    # Extract PATH-related lines from all config files.
+    # Pattern intentionally case-sensitive on PATH=: zsh's lowercase `path=(...)`,
+    # `fpath=`, `cdpath=`, `manpath=` etc. are NOT PATH exports — matching them
+    # produces malformed fish (unbalanced parens from `fpath=(...)` are the
+    # worst offender — they trigger fish command-substitution and brick startup).
     local -a path_lines=()
     local -a path_sources=()
     for f in "${source_files[@]}"; do
         while IFS= read -r line; do
-            # Skip comments and empty lines
-            [[ "$line" =~ ^[[:space:]]*# ]] && continue
-            [[ -z "$line" ]] && continue
+            # Strip trailing inline comments so "export PATH=/foo:$PATH  # note"
+            # doesn't leak "# note" into the extracted token list.
+            line="${line%%#*}"
+            # Skip empty / whitespace-only lines after comment strip
+            [[ "$line" =~ ^[[:space:]]*$ ]] && continue
             path_lines+=("$line")
             path_sources+=("$(basename "$f")")
-        done < <(grep -iE '(export.*PATH|PATH=|path.*=)' "$f" 2>/dev/null)
+        done < <(grep -E '(^[[:space:]]*(export[[:space:]]+)?PATH=|eval.*brew shellenv|source.*(\.cargo/env|cargo)|eval.*(pyenv init|pyenv virtualenv)|NVM_DIR|nvm\.sh|conda)' "$f" 2>/dev/null)
     done
 
     if [[ ${#path_lines[@]} -eq 0 ]]; then
@@ -757,8 +763,11 @@ _migrate_path_to_fish() {
         if ! confirm "Replace existing PATH migration block with a fresh scan?"; then
             return 0
         fi
-        # Remove the old block (between the markers)
+        # Remove the old block (between the markers). sed -i.bak is needed for
+        # BSD/macOS sed compatibility; clean up the .bak file afterwards so it
+        # doesn't accumulate in ~/.config/fish/ on repeated runs.
         sed -i.bak '/# PATH migration from Bash\/Zsh — START/,/# PATH migration from Bash\/Zsh — END/d' "$fish_config"
+        rm -f "${fish_config}.bak"
     fi
 
     # Build the Fish PATH block
@@ -826,6 +835,15 @@ _migrate_path_to_fish() {
                 for p in $extracted; do
                     # Expand $HOME references for the comment, keep variable for the actual line
                     local fish_path="$p"
+                    # Defence in depth: reject tokens containing characters that
+                    # produce malformed fish. An unbalanced `(` turns the line
+                    # into a command substitution and blows up shell startup.
+                    if [[ "$fish_path" == *'('* || "$fish_path" == *')'*  \
+                       || "$fish_path" == *'='* || "$fish_path" == *'*'*  \
+                       || "$fish_path" == *'?'* || "$fish_path" == *'{'*  \
+                       || "$fish_path" == *'}'* ]]; then
+                        continue
+                    fi
                     # Convert $HOME to Fish-compatible form (Fish understands $HOME fine)
                     if [[ -n "$fish_path" && "$fish_path" != "\$PATH" ]]; then
                         fish_line+="set -gx PATH ${fish_path} \$PATH"$'\n'

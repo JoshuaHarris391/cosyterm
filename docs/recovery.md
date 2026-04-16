@@ -68,4 +68,27 @@ Use it to sanity-check a restore — especially when combining `--from` with `--
 
 `restore` reads `manifest.tsv` from the chosen backup dir, stashes your current post-install state into a `pre-restore-<timestamp>/` subdir (so a restore is itself reversible), then moves every backed-up path back where it came from. Backups are plain directories — if the CLI isn't handy, `cp ~/.terminal-setup-backups/<timestamp>/.zshrc ~/.zshrc` works too.
 
+## Troubleshooting
+
+### Fish starts with `Unknown command` errors referencing `.docker/completions` (or similar)
+
+**Symptom.** On fish startup you see something like:
+
+```
+~/.config/fish/config.fish (line 1): Unknown command. '/Users/you/.docker/completions' exists but is not an executable file.
+fish: Unknown command: mktemp
+fish: Unknown command: uname
+thread 'main' panicked ... failed printing to stdout: Broken pipe
+```
+
+**Cause.** Affects cosyTerm < 0.2.1. The PATH migration's scan regex was too broad and matched zsh `fpath=(...)` completion lines (e.g. Docker Desktop's). The mangled line wrote unbalanced parentheses into `config.fish`, which fish parses as a command substitution — that clobbers `$PATH`, so even `/bin` and `/usr/bin` fall off and basic commands vanish.
+
+**Fix.** From a working shell (zsh works fine — it's not affected), remove the bad migration block:
+
+```sh
+sed -i.bak '/# PATH migration from Bash\/Zsh — START/,/# PATH migration from Bash\/Zsh — END/d' ~/.config/fish/config.fish
+```
+
+Then start fish, confirm it sources cleanly, and upgrade cosyTerm (`pip install -U cosyterm`) before re-running setup. If you'd prefer to roll back entirely, `cosyterm restore --latest` reverses the install.
+
 See also: [Safety model](safety.md) for what's backed up and why.
