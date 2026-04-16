@@ -45,7 +45,7 @@ Seven `[y/N]` prompts. About two minutes. Nothing installs without you saying ye
 
 ## Docs
 
-- **[Safety model](docs/safety.md)** — what cosyTerm touches, what it backs up, and the blast-radius guarantees.
+- **[Safety model](docs/safety.md)** — every command that runs, every URL fetched, every `sudo` — plus backups and blast-radius guarantees.
 - **[Recovery](docs/recovery.md)** — `cosyterm doctor`, `cosyterm restore`, and the `--dry-run` preview.
 - **[Automation](docs/automation.md)** — scripted installs (`COSYTERM_YES=1`, `COSYTERM_NVIM_CHOICE`), re-running a single step, and the Python API.
 - **[Design philosophy](docs/philosophy.md)** — why cosyTerm is opinionated and what it won't add.
