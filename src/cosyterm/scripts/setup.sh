@@ -22,11 +22,13 @@
 #   - Logs everything to ~/terminal-setup.log
 #
 # Usage:
-#   chmod +x terminal-setup.sh
-#   ./terminal-setup.sh
+#   This script is invoked by the `cosyterm` Python CLI — end users should not
+#   run it directly. See the project README for installation instructions.
 #
-# To run a specific section only, set the environment variable:
-#   SKIP_TO=starship ./terminal-setup.sh
+#   To re-run a single step, use:  cosyterm install <step>
+#   (steps: font, ghostty, shell, starship, eza, tmux, neovim)
+#
+# See docs/automation.md for scripted / non-interactive usage.
 # =============================================================================
 
 set -euo pipefail
@@ -245,7 +247,8 @@ backup_if_exists() {
     local step="${2:-unknown}"
     if [[ -e "$src" ]]; then
         mkdir -p "$BACKUP_DIR"
-        local dest="$BACKUP_DIR/$(basename "$src")"
+        local dest
+        dest="$BACKUP_DIR/$(basename "$src")"
         cp -r "$src" "$dest"
         manifest_append "$step" "copy" "$src" "$dest"
         log_warn "Backed up ${BOLD}$src${NC} → ${BOLD}$dest${NC}"
@@ -265,7 +268,7 @@ backup_move() {
         # same basename (e.g. .local/share/nvim and .local/state/nvim both
         # → "nvim") don't collide in the backup dir.
         local safe_name
-        safe_name=$(echo "${src#$HOME/}" | tr '/' '_')
+        safe_name=$(echo "${src#"$HOME"/}" | tr '/' '_')
         local dest="$BACKUP_DIR/$safe_name"
         mv "$src" "$dest"
         manifest_append "$step" "move" "$src" "$dest"
@@ -446,6 +449,7 @@ install_nerd_font() {
     # ── Linux install via direct download ──
     else
         local font_dir="$HOME/.local/share/fonts"
+        # shellcheck disable=SC2086  # FONT_FILE_GLOB is intentionally unquoted so the glob expands.
         if ls "$font_dir"/$FONT_FILE_GLOB &>/dev/null 2>&1; then
             log_success "$FONT_NAME Nerd Font is already installed in $font_dir"
             font_installed=true
@@ -592,14 +596,22 @@ install_shell() {
     echo "  3) Skip  — keep your current shell"
     read -rp "  Choice [1/2/3] (default: 1): " shell_choice
 
+    # Validate — empty input accepts the default (fish). Anything other than
+    # 1/2/3 is treated as skip, because silently changing the default shell
+    # on a typo is the single most invasive thing this script could do.
     case "$shell_choice" in
+        ""|1) SHELL_CHOICE="fish" ;;
         2) SHELL_CHOICE="zsh" ;;
         3)
             SHELL_CHOICE="skip"
             log_warn "Skipped shell installation. Starship will still work with your current shell."
             return 0
             ;;
-        *) SHELL_CHOICE="fish" ;;
+        *)
+            SHELL_CHOICE="skip"
+            log_warn "Unrecognised choice '$shell_choice' — skipping shell installation. Re-run cosyterm to pick a shell."
+            return 0
+            ;;
     esac
 
     # Install the chosen shell if not present
@@ -1086,6 +1098,7 @@ _hook_starship() {
         if ! grep -q "starship init zsh" "$zshrc" 2>/dev/null; then
             echo "" >> "$zshrc"
             echo "# Starship prompt" >> "$zshrc"
+            # shellcheck disable=SC2016  # single quotes are intentional — we want the literal string in zshrc.
             echo 'eval "$(starship init zsh)"' >> "$zshrc"
             log_success "Starship hooked into .zshrc"
         else

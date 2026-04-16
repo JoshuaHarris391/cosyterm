@@ -7,13 +7,12 @@ Usage:
     cosyterm --help   Show help
 """
 
-import sys
 import argparse
+import sys
 
-from cosyterm import __version__
-from cosyterm.core import setup, doctor, install_step, INSTALL_STEPS
 import cosyterm.restore as restore_mod
-
+from cosyterm import __version__
+from cosyterm.core import INSTALL_STEPS, doctor, install_step, setup
 
 BANNER = r"""
 \033[38;5;183m

@@ -1,6 +1,5 @@
 """Basic tests for cosyterm."""
 
-from pathlib import Path
 
 
 def test_version():
@@ -18,6 +17,7 @@ def test_script_exists():
 def test_script_is_valid_bash():
     """Verify the bundled script passes bash syntax check."""
     import subprocess
+
     from cosyterm.core import _get_script_path
 
     script = _get_script_path()
