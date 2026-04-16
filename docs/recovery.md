@@ -108,6 +108,26 @@ rm -f ~/.config/fish/conf.d/00-cosyterm-path.fish
 
 Then start fish, confirm it sources cleanly, and upgrade cosyTerm (`pip install -U cosyterm`) before re-running setup. If you'd prefer to roll back entirely, `cosyterm restore --latest` reverses the install.
 
+### Fish errors `Unknown command: pyenv` (or similar) on every startup
+
+**Symptom.** Opening a new fish shell prints an error like:
+
+```
+fish: Unknown command: pyenv
+~/.config/fish/conf.d/00-cosyterm-path.fish (line N):
+status is-login; and pyenv init --path | source
+```
+
+**Cause.** Affects cosyTerm < 0.3.1. The PATH migration emitted `pyenv init | source` verbatim even when pyenv wasn't on fish's PATH. Most common when your `.zshrc` puts `$PYENV_ROOT/bin` on PATH via a variable fish doesn't know about — the path entry silently expands to nothing, pyenv stays unreachable, and init blows up.
+
+**Fix.** Upgrade cosyterm and re-run `cosyterm install shell` — new migrations wrap the line with `command -v pyenv` so it no-ops safely. To patch without a rerun, open `~/.config/fish/conf.d/00-cosyterm-path.fish` and replace the offending line with:
+
+```fish
+command -v pyenv >/dev/null; and status is-login; and pyenv init --path | source
+```
+
+The same pattern protects any emitted command (`brew shellenv`, future version-manager integrations, etc.).
+
 ### macOS: "bash >=4 is required" when running `cosyterm`
 
 **Cause.** macOS ships `/bin/bash` 3.2 for GPL-v2 licensing reasons; cosyterm's installer uses bash 4+ features (associative arrays, pattern substitution, etc.) and refuses to run under 3.2 rather than fail cryptically mid-script.
@@ -148,6 +168,16 @@ fish_add_path -g "$GOPATH/bin"
 ```
 
 Leaving the original `fish_add_path -g "$GOPATH/bin"` in `00-cosyterm-path.fish` is harmless — fish expands the undefined var to empty and skips the add.
+
+For **pyenv** the canonical fish setup is the same pattern:
+
+```fish
+set -gx PYENV_ROOT $HOME/.pyenv
+fish_add_path -g "$PYENV_ROOT/bin"
+command -v pyenv >/dev/null; and status is-login; and pyenv init --path | source
+```
+
+cosyterm's migration already emits the guarded `pyenv init` line. You only need to add the `PYENV_ROOT` + `fish_add_path` lines above it if pyenv isn't otherwise on PATH.
 
 ### Multi-line PATH assignments weren't migrated
 

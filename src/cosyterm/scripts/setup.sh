@@ -954,13 +954,16 @@ _migrate_path_to_fish() {
     # Pick a canonical brew shellenv path for the architecture — don't gate
     # on the brew binary existing yet (step 4 installs brew on a fresh Mac,
     # which happens AFTER this migration runs).
+    # Emit with `test -x …; and …` so the line no-ops cleanly when brew
+    # isn't installed yet — matters on a fresh Mac where step 3 (migration)
+    # runs before step 4 (brew install).
     local arch brew_shellenv
     arch=$(uname -m 2>/dev/null || echo unknown)
     case "$OS:$arch" in
-        macos:arm64)  brew_shellenv="/opt/homebrew/bin/brew shellenv | source" ;;
-        macos:*)      brew_shellenv="/usr/local/bin/brew shellenv | source" ;;
-        linux:*)      brew_shellenv="/home/linuxbrew/.linuxbrew/bin/brew shellenv | source" ;;
-        *)            brew_shellenv="/opt/homebrew/bin/brew shellenv | source" ;;
+        macos:arm64)  brew_shellenv="test -x /opt/homebrew/bin/brew; and /opt/homebrew/bin/brew shellenv | source" ;;
+        macos:*)      brew_shellenv="test -x /usr/local/bin/brew; and /usr/local/bin/brew shellenv | source" ;;
+        linux:*)      brew_shellenv="test -x /home/linuxbrew/.linuxbrew/bin/brew; and /home/linuxbrew/.linuxbrew/bin/brew shellenv | source" ;;
+        *)            brew_shellenv="test -x /opt/homebrew/bin/brew; and /opt/homebrew/bin/brew shellenv | source" ;;
     esac
 
     local -a fish_lines=()
@@ -971,6 +974,11 @@ _migrate_path_to_fish() {
     fish_lines+=("# Edit freely — cosyterm only rewrites this file, never other .fish files.")
 
     local added=0 skipped=0
+    # Dedup store — when two source lines produce the same translation
+    # (e.g. `pyenv init --path` and `pyenv init -`), we emit once and tag
+    # later matches as duplicates. Unit-separator bracketing (\x1f can't
+    # appear in real shell input) makes membership tests a plain substring.
+    local seen_translations=""
 
     for line in "${path_lines[@]}"; do
         local translated=""
@@ -985,8 +993,12 @@ _migrate_path_to_fish() {
             translated='fish_add_path -g "$HOME/.cargo/bin"'
 
         # ── pyenv init ──
+        # Guard on `command -v pyenv` so the line no-ops if pyenv isn't on
+        # fish's PATH. Fish inherits a different env than zsh, and anything
+        # that added $PYENV_ROOT/bin to PATH via a bash-only variable
+        # won't carry over — without this guard, every fish start errors.
         elif [[ "$line" =~ eval.*(pyenv[[:space:]]init|pyenv[[:space:]]virtualenv) ]]; then
-            translated='status is-login; and pyenv init --path | source'
+            translated='command -v pyenv >/dev/null; and status is-login; and pyenv init --path | source'
 
         # ── nvm: fish needs the nvm.fish plugin; don't emit anything ──
         elif [[ "$line" =~ NVM_DIR ]] || [[ "$line" =~ nvm\.sh ]]; then
@@ -1050,11 +1062,17 @@ _migrate_path_to_fish() {
         fi
 
         if [[ -n "$translated" ]]; then
-            fish_lines+=("$comment")
-            while IFS= read -r emitted; do
-                [[ -n "$emitted" ]] && fish_lines+=("$emitted")
-            done <<< "$translated"
-            added=$((added+1))
+            local dedup_key=$'\x1f'"$translated"$'\x1f'
+            if [[ "$seen_translations" == *"$dedup_key"* ]]; then
+                fish_lines+=("$comment  # (duplicate of earlier entry — skipped)")
+            else
+                seen_translations+="$dedup_key"
+                fish_lines+=("$comment")
+                while IFS= read -r emitted; do
+                    [[ -n "$emitted" ]] && fish_lines+=("$emitted")
+                done <<< "$translated"
+                added=$((added+1))
+            fi
         else
             fish_lines+=("# SKIPPED (couldn't parse): $line")
             skipped=$((skipped+1))
@@ -1307,15 +1325,16 @@ _hook_starship() {
         mkdir -p "$fish_confd"
 
         # Canonical brew shellenv path per architecture (same logic as
-        # _migrate_path_to_fish). Emit unconditionally: fish will no-op if
-        # brew isn't present yet (e.g. on a fresh Mac, brew installs later).
+        # _migrate_path_to_fish). Guard on test -x so the line no-ops if
+        # brew isn't installed yet (fresh Mac: this step runs before the
+        # user's first brew install).
         local arch brew_shellenv
         arch=$(uname -m 2>/dev/null || echo unknown)
         case "$OS:$arch" in
-            macos:arm64)  brew_shellenv="/opt/homebrew/bin/brew shellenv | source" ;;
-            macos:*)      brew_shellenv="/usr/local/bin/brew shellenv | source" ;;
-            linux:*)      brew_shellenv="/home/linuxbrew/.linuxbrew/bin/brew shellenv | source" ;;
-            *)            brew_shellenv="/opt/homebrew/bin/brew shellenv | source" ;;
+            macos:arm64)  brew_shellenv="test -x /opt/homebrew/bin/brew; and /opt/homebrew/bin/brew shellenv | source" ;;
+            macos:*)      brew_shellenv="test -x /usr/local/bin/brew; and /usr/local/bin/brew shellenv | source" ;;
+            linux:*)      brew_shellenv="test -x /home/linuxbrew/.linuxbrew/bin/brew; and /home/linuxbrew/.linuxbrew/bin/brew shellenv | source" ;;
+            *)            brew_shellenv="test -x /opt/homebrew/bin/brew; and /opt/homebrew/bin/brew shellenv | source" ;;
         esac
 
         local tmp_init
