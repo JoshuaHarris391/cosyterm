@@ -1,0 +1,57 @@
+[build-system]
+requires = ["poetry-core>=1.8.0"]
+build-backend = "poetry.core.masonry.api"
+
+[project]
+name = "cosyterm"
+version = "0.1.0"
+description = "Your terminal, but make it cozy. One command to install a curated, Catppuccin-themed dev setup — Ghostty, Starship, eza, tmux, NeoVim, and more."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9,<4.0"
+authors = [
+    { name = "Joshua Harris", email = "joshymole@gmail.com" },
+]
+keywords = [
+    "terminal",
+    "shell",
+    "dotfiles",
+    "catppuccin",
+    "starship",
+    "ghostty",
+    "neovim",
+    "tmux",
+    "developer-tools",
+    "cli",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: System :: Shells",
+    "Topic :: Utilities",
+]
+
+[project.urls]
+Homepage = "https://github.com/JoshuaHarris391/cosyterm"
+Repository = "https://github.com/JoshuaHarris391/cosyterm"
+Issues = "https://github.com/JoshuaHarris391/cosyterm/issues"
+
+[project.scripts]
+cosyterm = "cosyterm.cli:main"
+
+[tool.poetry]
+packages = [{ include = "cosyterm", from = "src" }]
+include = [{ path = "src/cosyterm/scripts/*.sh", format = ["sdist", "wheel"] }]
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0"
