@@ -17,33 +17,25 @@
 </p>
 
 <p align="center">
-  <sub>You want a beautiful terminal. You don't want to spend a weekend configuring one.<br/><b>cosyTerm</b> gives you the whole thing in one command.</sub>
-</p>
-
-<p align="center">
   <img src="assets/img/screenshot.png" width="800" alt="cosyTerm screenshot" />
 </p>
 
 ---
 
-## The idea
-
-Most developers know their terminal *could* look better. Fewer want to spend hours reading dotfile repos, debugging shell configs, and cross-referencing theme ports across six different tools.
+## Install
 
 ```bash
 pip install cosyterm
 cosyterm
 ```
 
-Every step asks first. Existing configs are moved to a timestamped backup. `cosyterm restore --latest --dry-run` previews a full undo — drop `--dry-run` to reverse the install.
+Seven `[y/N]` prompts. About two minutes. Nothing installs without you saying yes. Existing configs are moved to a timestamped backup first, so `cosyterm restore --latest` reverses the whole run.
 
 ## What you get
 
-A curated, cohesive terminal — every piece themed with **[Catppuccin Mocha](https://catppuccin.com)**.
-
 | Tool | What it does |
 |---|---|
-| **[Nerd Font](https://www.nerdfonts.com/)** | Your choice of 10 patched fonts — JetBrains Mono, Commit Mono, Cascadia Code, and more |
+| **[Nerd Font](https://www.nerdfonts.com/)** | 10 patched fonts — JetBrains Mono, Commit Mono, Cascadia Code, and more |
 | **[Ghostty](https://ghostty.org)** | GPU-accelerated terminal emulator by Mitchell Hashimoto |
 | **[Fish](https://fishshell.com/) or [Zsh](https://www.zsh.org/)** | Fish (recommended) or Zsh (POSIX-compatible) |
 | **[Starship](https://starship.rs)** | Cross-shell prompt — git, language versions, right-aligned and clean |
@@ -51,175 +43,24 @@ A curated, cohesive terminal — every piece themed with **[Catppuccin Mocha](ht
 | **[tmux](https://github.com/tmux/tmux)** | Terminal multiplexer with pastel status bar at top |
 | **[NeoVim](https://neovim.io) + [LazyVim](https://lazyvim.github.io)** | IDE-grade editor, pre-configured, zero setup |
 
-## How it works
+## Docs
 
-```bash
-cosyterm
-```
-
-Seven `[y/N]` prompts. About two minutes. Nothing installs without you saying yes — and the NeoVim step makes you type the word `replace` before it touches your config, so you can't fat-finger it away.
-
-```
-╔═══════════════════════════════════════════════════════════════╗
-║           cosyTerm — your terminal, but make it cozy         ║
-╚═══════════════════════════════════════════════════════════════╝
-
-Step 1/7 ▶ Pick a font
-Step 2/7 ▶ Ghostty terminal
-Step 3/7 ▶ Shell (Zsh default)
-Step 4/7 ▶ Starship prompt
-Step 5/7 ▶ eza (better ls)
-Step 6/7 ▶ tmux + Catppuccin
-Step 7/7 ▶ NeoVim + LazyVim
-```
-
-Re-run any single step later with `cosyterm install <step>` (e.g. `cosyterm install neovim`). When it's done, close your terminal, open Ghostty, and everything just works.
-
-## Scripted install
-
-For dotfiles-bootstrap, devcontainers, or onboarding scripts:
-
-```bash
-COSYTERM_YES=1 COSYTERM_NVIM_CHOICE=sidebyside cosyterm
-```
-
-| Variable | Effect |
-|---|---|
-| `COSYTERM_YES=1` | Auto-answer every `[y/N]` with yes. |
-| `COSYTERM_NVIM_CHOICE=skip\|sidebyside\|replace` | Pre-answer the NeoVim prompt. With `COSYTERM_YES=1` but this unset, NeoVim defaults to `skip` so your config is never silently replaced. |
-| `COSYTERM_BACKUP_DIR=<path>` | Override `~/.terminal-setup-backups`. |
-| `COSYTERM_LOG_FILE=<path>` | Override `~/terminal-setup.log`. |
-
-Step names for `cosyterm install`: `font`, `ghostty`, `shell`, `starship`, `eza`, `tmux`, `neovim`.
-
-## Safety model
-
-cosyTerm modifies files in your home directory and, on Linux, runs `sudo` for package installs and for appending Fish to `/etc/shells`. Here's how it minimises blast radius.
-
-- **Backups** — existing configs are backed up to `~/.terminal-setup-backups/<timestamp>/` before being touched. The NeoVim step **moves** (not copies) `~/.config/nvim`, `~/.local/share/nvim`, and `~/.local/state/nvim` into the backup so plugin state and your `lazy-lock.json` come back exactly if you restore. Cache (`~/.cache/nvim`) is regenerable and not backed up.
-- **Manifest** — every move/copy is recorded in `<backup>/manifest.tsv` so `cosyterm restore` can undo them exactly.
-- **Confirmations** — every install and config write asks `[y/N]` first. Replacing an existing NeoVim config requires typing `replace` — not a single keystroke.
-- **NeoVim pre-flight** — if you already have a NeoVim config, you're offered `skip` / `side-by-side` (installs to `~/.config/nvim-cosy`, original untouched) / `replace`. The safe route is the default when auto-confirming.
-- **Verification** — after each install, the binary is confirmed on PATH before writing any config that references it.
-- **Mismatch detection** — a final check catches configs pointing to tools that aren't installed.
-- **PATH migration (best-effort)** — PATH entries from Zsh/Bash are translated to `fish_add_path` where possible; review `~/.config/fish/config.fish` after install.
-- **Full log** — everything is recorded in `~/terminal-setup.log`.
-
-## If something feels off
-
-Start with `doctor` — it checks for missing binaries, orphaned configs, PATH issues, and font problems.
-
-```bash
-cosyterm doctor
-```
-
-```
-━━━ cosyTerm doctor ━━━
-
-  ✓ Ghostty          /opt/homebrew/bin/ghostty
-  ✓ Starship         /opt/homebrew/bin/starship
-  ✓ Starship config  ~/.config/starship.toml
-  ✓ eza              /opt/homebrew/bin/eza
-  ✓ tmux             /opt/homebrew/bin/tmux
-  ✓ Catppuccin tmux  ~/.config/tmux/plugins/catppuccin/tmux
-  ✓ NeoVim           /opt/homebrew/bin/nvim
-  ✓ LazyVim config   ~/.config/nvim
-
-  ✓ No config/binary mismatches found
-```
-
-### Undo
-
-Every cosyTerm run writes a manifest of what it changed, so you can reverse it with one command.
-
-```bash
-# See what's available
-cosyterm restore --list
-
-# Preview what a restore would do — changes nothing on disk
-cosyterm restore --latest --dry-run
-
-# Reverse the most recent install completely
-cosyterm restore --latest
-
-# Reverse just one step (e.g. bring your NeoVim config back)
-cosyterm restore --latest --only neovim
-
-# Restore from a specific backup by timestamp
-cosyterm restore --from 20250415_143022
-
-# Verify a backup's integrity without restoring
-cosyterm restore --verify --latest
-```
-
-#### Preview with `--dry-run`
-
-Pair `--dry-run` with any restore target (`--latest`, `--from <timestamp>`, `--only <step>`) to see exactly which paths would move back, in the order they'd be restored, without touching a single file.
-
-```
-Restoring from: ~/.terminal-setup-backups/20250415_143022
-Entries: 3  (filtered to step 'neovim')
-
-  [would move back]  ~/.terminal-setup-backups/20250415_143022/.local/state/nvim  →  ~/.local/state/nvim
-  [would move back]  ~/.terminal-setup-backups/20250415_143022/.local/share/nvim  →  ~/.local/share/nvim
-  [would move back]  ~/.terminal-setup-backups/20250415_143022/.config/nvim       →  ~/.config/nvim
-
-(no changes made — --dry-run)
-```
-
-Use it to sanity-check a restore — especially when combining `--from` with `--only` — before committing to the real run.
-
-Under the hood: `restore` reads `manifest.tsv` from the chosen backup dir, stashes your current post-install state into a `pre-restore-<timestamp>/` subdir (so a restore is itself reversible), then moves every backed-up path back where it came from. Backups are plain directories — if the CLI isn't handy, `cp ~/.terminal-setup-backups/<timestamp>/.zshrc ~/.zshrc` works too.
+- **[Safety model](docs/safety.md)** — what cosyTerm touches, what it backs up, and the blast-radius guarantees.
+- **[Recovery](docs/recovery.md)** — `cosyterm doctor`, `cosyterm restore`, and the `--dry-run` preview.
+- **[Automation](docs/automation.md)** — scripted installs (`COSYTERM_YES=1`, `COSYTERM_NVIM_CHOICE`), re-running a single step, and the Python API.
+- **[Design philosophy](docs/philosophy.md)** — why cosyTerm is opinionated and what it won't add.
 
 ---
 
 **Try it. If it's not for you, `cosyterm restore --latest` puts everything back.**
 
-## Python API
-
-```python
-import cosyterm
-
-cosyterm.setup()        # run the interactive installer
-cosyterm.doctor()       # check for issues
-```
-
 ## Requirements
 
 macOS or Linux · Python 3.8+ · bash · git · Homebrew (macOS) or apt/dnf/pacman (Linux)
 
----
-
-## Design philosophy
-
-**cosyTerm is a curated product, not a framework.**
-
-The tool selection is intentional and limited. I don't offer 15 theme options, 8 prompt engines, or 4 terminal emulators. I picked one cohesive set of tools that work well together, themed them consistently, and made the whole thing installable in one command.
-
-This is opinionated by design. The constraint is the feature.
-
-
-### What I will add
-
-- New tools that improve the curated experience (e.g., better git UIs, fuzzy finders)
-- Platform support (more Linux distros, WSL)
-- Additional Nerd Font options
-- Quality-of-life improvements to the installer flow
-
-### What I won't add
-
-- Multiple competing themes or colour schemes
-- Alternative tools that do the same thing as an existing pick
-- Options that require the user to understand terminal internals
-- Anything that makes the "just run it" experience more complicated
-
 ## Contributing
 
-Open source contributions are welcome. Whether it's bug fixes, installer improvements, new platform support, or better defaults — I'd love the help.
-
-Before adding a new tool or feature, open an issue to discuss it. I want to keep the curated feel, so not everything will be a fit, but the conversation is always welcome.
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+Open source contributions are welcome. Before adding a new tool or feature, open an issue to discuss it — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Credits
 
