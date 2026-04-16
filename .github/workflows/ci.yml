@@ -35,6 +35,12 @@ jobs:
       - name: Lint with bash -n
         run: bash -n src/cosyterm/scripts/setup.sh
 
+      - name: Lint shell scripts (shellcheck)
+        uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: './src/cosyterm/scripts'
+          severity: warning
+
       - name: Run tests
         run: poetry run pytest tests/ -v
 
