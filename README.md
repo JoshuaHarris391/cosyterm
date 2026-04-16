@@ -51,7 +51,7 @@ A curated, cohesive terminal — every piece themed with **[Catppuccin Mocha](ht
 |---|---|---|
 | 🔤 | **Nerd Font** | Your choice of 10 patched fonts — JetBrains Mono, Commit Mono, Cascadia Code, and more |
 | 👻 | **[Ghostty](https://ghostty.org)** | GPU-accelerated terminal emulator by Mitchell Hashimoto |
-| 🐚 | **Zsh or Fish** | Zsh (default, POSIX) or Fish (modern, opinionated) |
+| 🐚 | **Fish or Zsh** | Fish (recommended) or Zsh (POSIX-compatible) |
 | 🚀 | **[Starship](https://starship.rs)** | Cross-shell prompt — git, language versions, right-aligned and clean |
 | 📂 | **[eza](https://eza.rocks)** | `ls` with icons, colors, git status, and tree views |
 | 🪟 | **[tmux](https://github.com/tmux/tmux)** | Terminal multiplexer with pastel status bar at top |

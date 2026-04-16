@@ -59,14 +59,14 @@ DEFAULT_FONTS=(
 )
 
 FUN_FONTS=(
-    "OpenDyslexic"
     "Monofur"
+    "OpenDyslexic"
     "Agave"
     "0xProto"
     "Hasklig"
 )
 
-FONT_OPTIONS=("${DEFAULT_FONTS[@]}" "${FUN_FONTS[@]}")
+FONT_OPTIONS=("${FUN_FONTS[@]}" "${DEFAULT_FONTS[@]}")
 
 # Usage: font_lookup <key> <field>
 # Fields: display, cask, family, glob
@@ -314,15 +314,15 @@ install_nerd_font() {
     echo ""
     local i=1
 
-    echo -e "  ${BOLD}${CYAN}Developer fonts${NC}"
-    for key in "${DEFAULT_FONTS[@]}"; do
+    echo -e "  ${BOLD}${CYAN}Fun fonts${NC}"
+    for key in "${FUN_FONTS[@]}"; do
         echo -e "  ${BOLD}$i)${NC} $(font_lookup "$key" display)"
         ((i++))
     done
 
     echo ""
-    echo -e "  ${BOLD}${CYAN}Fun fonts${NC}"
-    for key in "${FUN_FONTS[@]}"; do
+    echo -e "  ${BOLD}${CYAN}Developer fonts${NC}"
+    for key in "${DEFAULT_FONTS[@]}"; do
         echo -e "  ${BOLD}$i)${NC} $(font_lookup "$key" display)"
         ((i++))
     done
@@ -511,19 +511,19 @@ install_shell() {
 
     echo ""
     echo -e "${BOLD}${YELLOW}▶ Which shell would you like to set up?${NC}"
-    echo "  1) Zsh   — powerful, POSIX-compatible, widely supported (default)"
-    echo "  2) Fish  — modern, user-friendly, non-POSIX"
+    echo "  1) Fish  — modern, user-friendly, non-POSIX (recommended)"
+    echo "  2) Zsh   — powerful, POSIX-compatible, widely supported"
     echo "  3) Skip  — keep your current shell"
     read -rp "  Choice [1/2/3] (default: 1): " shell_choice
 
     case "$shell_choice" in
-        2) SHELL_CHOICE="fish" ;;
+        2) SHELL_CHOICE="zsh" ;;
         3)
             SHELL_CHOICE="skip"
             log_warn "Skipped shell installation. Starship will still work with your current shell."
             return 0
             ;;
-        *) SHELL_CHOICE="zsh" ;;
+        *) SHELL_CHOICE="fish" ;;
     esac
 
     # Install the chosen shell if not present
