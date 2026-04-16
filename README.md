@@ -5,7 +5,8 @@
 <h1 align="center">cosyTerm</h1>
 
 <p align="center">
-  <strong>Your terminal, but make it cozy.</strong>
+  <strong>Your whole terminal stack, themed in one command.</strong><br/>
+  <sub>Ghostty, your shell, Starship, eza, tmux, NeoVim — all Catppuccin Mocha, fully reversible.</sub>
 </p>
 
 <p align="center">
@@ -29,19 +30,12 @@
 
 Most developers know their terminal *could* look better. Fewer want to spend hours reading dotfile repos, debugging shell configs, and cross-referencing theme ports across six different tools.
 
-**cosyTerm** is for you if:
-
-- You've seen those gorgeous terminal screenshots and thought *"I want that but I don't want to do all… that"*
-- You'd rather run one command than hand-wire configs for a weekend
-- You want everything to match — prompt, editor, multiplexer, file listings — without hunting down theme ports yourself
-- You care about how your tools look and feel, but terminal customisation isn't your hobby
-
-Two commands. Done.
-
 ```bash
 pip install cosyterm
 cosyterm
 ```
+
+Every step asks first. Existing configs are moved to a timestamped backup. `cosyterm restore --latest --dry-run` previews a full undo — drop `--dry-run` to reverse the install.
 
 ## What you get
 
@@ -63,7 +57,7 @@ A curated, cohesive terminal — every piece themed with **[Catppuccin Mocha](ht
 cosyterm
 ```
 
-An interactive installer walks you through 7 steps. Every step asks before doing anything. Skip what you don't want. Nothing is installed silently.
+Seven `[y/N]` prompts. About two minutes. Nothing installs without you saying yes — and the NeoVim step makes you type the word `replace` before it touches your config, so you can't fat-finger it away.
 
 ```
 ╔═══════════════════════════════════════════════════════════════╗
@@ -79,9 +73,41 @@ Step 6/7 ▶ tmux + Catppuccin
 Step 7/7 ▶ NeoVim + LazyVim
 ```
 
-When it's done, close your terminal, open Ghostty, and everything just works.
+Re-run any single step later with `cosyterm install <step>` (e.g. `cosyterm install neovim`). When it's done, close your terminal, open Ghostty, and everything just works.
 
-## Something feel off?
+## Scripted install
+
+For dotfiles-bootstrap, devcontainers, or onboarding scripts:
+
+```bash
+COSYTERM_YES=1 COSYTERM_NVIM_CHOICE=sidebyside cosyterm
+```
+
+| Variable | Effect |
+|---|---|
+| `COSYTERM_YES=1` | Auto-answer every `[y/N]` with yes. |
+| `COSYTERM_NVIM_CHOICE=skip\|sidebyside\|replace` | Pre-answer the NeoVim prompt. With `COSYTERM_YES=1` but this unset, NeoVim defaults to `skip` so your config is never silently replaced. |
+| `COSYTERM_BACKUP_DIR=<path>` | Override `~/.terminal-setup-backups`. |
+| `COSYTERM_LOG_FILE=<path>` | Override `~/terminal-setup.log`. |
+
+Step names for `cosyterm install`: `font`, `ghostty`, `shell`, `starship`, `eza`, `tmux`, `neovim`.
+
+## Safety model
+
+cosyTerm modifies files in your home directory and, on Linux, runs `sudo` for package installs and for appending Fish to `/etc/shells`. Here's how it minimises blast radius.
+
+- **Backups** — existing configs are backed up to `~/.terminal-setup-backups/<timestamp>/` before being touched. The NeoVim step **moves** (not copies) `~/.config/nvim`, `~/.local/share/nvim`, and `~/.local/state/nvim` into the backup so plugin state and your `lazy-lock.json` come back exactly if you restore. Cache (`~/.cache/nvim`) is regenerable and not backed up.
+- **Manifest** — every move/copy is recorded in `<backup>/manifest.tsv` so `cosyterm restore` can undo them exactly.
+- **Confirmations** — every install and config write asks `[y/N]` first. Replacing an existing NeoVim config requires typing `replace` — not a single keystroke.
+- **NeoVim pre-flight** — if you already have a NeoVim config, you're offered `skip` / `side-by-side` (installs to `~/.config/nvim-cosy`, original untouched) / `replace`. The safe route is the default when auto-confirming.
+- **Verification** — after each install, the binary is confirmed on PATH before writing any config that references it.
+- **Mismatch detection** — a final check catches configs pointing to tools that aren't installed.
+- **PATH migration (best-effort)** — PATH entries from Zsh/Bash are translated to `fish_add_path` where possible; review `~/.config/fish/config.fish` after install.
+- **Full log** — everything is recorded in `~/terminal-setup.log`.
+
+## If something feels off
+
+Start with `doctor` — it checks for missing binaries, orphaned configs, PATH issues, and font problems.
 
 ```bash
 cosyterm doctor
@@ -102,22 +128,7 @@ cosyterm doctor
   ✓ No config/binary mismatches found
 ```
 
-Checks for missing binaries, orphaned configs, PATH issues, and font problems.
-
-## Safety
-
-cosyTerm modifies files in your home directory and, on Linux, runs `sudo` for package installs and for appending Fish to `/etc/shells`. Here's how it minimises blast radius.
-
-- **Backups** — existing configs are backed up to `~/.terminal-setup-backups/<timestamp>/` before being touched. The NeoVim step **moves** (not copies) `~/.config/nvim`, `~/.local/share/nvim`, and `~/.local/state/nvim` into the backup so plugin state and your `lazy-lock.json` come back exactly if you restore. Cache (`~/.cache/nvim`) is regenerable and not backed up.
-- **Manifest** — every move/copy is recorded in `<backup>/manifest.tsv` so `cosyterm restore` can undo them exactly.
-- **Confirmations** — every install and config write asks `[y/N]` first. Replacing an existing NeoVim config requires typing `replace` — not a single keystroke.
-- **NeoVim pre-flight** — if you already have a NeoVim config, you're offered `skip` / `side-by-side` (installs to `~/.config/nvim-cosy`, original untouched) / `replace`. The safe route is the default when auto-confirming.
-- **Verification** — after each install, the binary is confirmed on PATH before writing any config that references it.
-- **Mismatch detection** — a final check catches configs pointing to tools that aren't installed.
-- **PATH migration (best-effort)** — when switching to Fish, `export PATH=` lines in your Zsh/Bash config are translated to `fish_add_path`. Conditional logic, `eval "$(...)"` blocks, and non-PATH exports are not migrated — review `~/.config/fish/config.fish` after install.
-- **Full log** — everything is recorded in `~/terminal-setup.log`.
-
-## Recovering
+### Undo
 
 Every cosyTerm run writes a manifest of what it changed, so you can reverse it with one command.
 
@@ -141,14 +152,28 @@ cosyterm restore --from 20250415_143022
 cosyterm restore --verify --latest
 ```
 
-Under the hood: `restore` reads `manifest.tsv` from the chosen backup dir, moves your current post-install state into a `pre-restore-<timestamp>/` subdir (so a restore is itself reversible), then moves every backed-up path back where it came from.
+#### Preview with `--dry-run`
 
-If the CLI isn't handy, the backups are plain directories — you can also `ls ~/.terminal-setup-backups/` and copy files back manually:
+Pair `--dry-run` with any restore target (`--latest`, `--from <timestamp>`, `--only <step>`) to see exactly which paths would move back, in the order they'd be restored, without touching a single file.
 
-```bash
-ls ~/.terminal-setup-backups/
-cp ~/.terminal-setup-backups/20250415_143022/.zshrc ~/.zshrc
 ```
+Restoring from: ~/.terminal-setup-backups/20250415_143022
+Entries: 3  (filtered to step 'neovim')
+
+  [would move back]  ~/.terminal-setup-backups/20250415_143022/.local/state/nvim  →  ~/.local/state/nvim
+  [would move back]  ~/.terminal-setup-backups/20250415_143022/.local/share/nvim  →  ~/.local/share/nvim
+  [would move back]  ~/.terminal-setup-backups/20250415_143022/.config/nvim       →  ~/.config/nvim
+
+(no changes made — --dry-run)
+```
+
+Use it to sanity-check a restore — especially when combining `--from` with `--only` — before committing to the real run.
+
+Under the hood: `restore` reads `manifest.tsv` from the chosen backup dir, stashes your current post-install state into a `pre-restore-<timestamp>/` subdir (so a restore is itself reversible), then moves every backed-up path back where it came from. Backups are plain directories — if the CLI isn't handy, `cp ~/.terminal-setup-backups/<timestamp>/.zshrc ~/.zshrc` works too.
+
+---
+
+**Try it. If it's not for you, `cosyterm restore --latest` puts everything back.**
 
 ## Python API
 
