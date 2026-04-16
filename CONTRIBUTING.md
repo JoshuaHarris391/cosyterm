@@ -1,10 +1,10 @@
 # Contributing to cosyTerm
 
-Thanks for your interest in contributing. cosyTerm is a curated tool, so we're thoughtful about what goes in — but we genuinely welcome help making it better.
+Thanks for your interest in contributing. cosyTerm is a curated tool, so I'm thoughtful about what goes in — but I genuinely welcome help making it better.
 
-## What we're looking for
+## What I'm looking for
 
-- **Bug fixes** — if something breaks on your OS, distro, or shell, we want to know
+- **Bug fixes** — if something breaks on your OS, distro, or shell, I want to know
 - **Installer improvements** — better error handling, clearer prompts, smarter fallbacks
 - **Platform support** — WSL, new Linux distros, edge cases on older macOS versions
 - **Documentation** — typos, unclear instructions, missing context
@@ -12,14 +12,14 @@ Thanks for your interest in contributing. cosyTerm is a curated tool, so we're t
 
 ## Before adding a new tool
 
-cosyTerm is intentionally limited. We pick one tool per job and theme it consistently. Before proposing a new tool, open an issue to discuss:
+cosyTerm is intentionally limited. I pick one tool per job and theme it consistently. Before proposing a new tool, open an issue to discuss:
 
 - What problem does it solve that the current setup doesn't?
 - Does it fit the "run and go" philosophy — zero config needed from the user?
 - Does it have a Catppuccin port?
 - Does it add complexity to the installer flow?
 
-We won't merge additions that make the user think harder. The whole point is they don't have to.
+I won't merge additions that make the user think harder. The whole point is they don't have to.
 
 ## How to contribute
 
@@ -38,4 +38,4 @@ We won't merge additions that make the user think harder. The whole point is the
 
 ## Be kind
 
-This is a small project. We review PRs as time allows. Be patient, be respectful, and assume good intent.
+This is a small project. I review PRs as time allows. Be patient, be respectful, and assume good intent.

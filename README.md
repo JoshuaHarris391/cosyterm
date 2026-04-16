@@ -47,16 +47,16 @@ cosyterm
 
 A curated, cohesive terminal — every piece themed with **[Catppuccin Mocha](https://catppuccin.com)**.
 
-| | Tool | What it does |
-|---|---|---|
-| 🔤 | **Nerd Font** | Your choice of 10 patched fonts — JetBrains Mono, Commit Mono, Cascadia Code, and more |
-| 👻 | **[Ghostty](https://ghostty.org)** | GPU-accelerated terminal emulator by Mitchell Hashimoto |
-| 🐚 | **Fish or Zsh** | Fish (recommended) or Zsh (POSIX-compatible) |
-| 🚀 | **[Starship](https://starship.rs)** | Cross-shell prompt — git, language versions, right-aligned and clean |
-| 📂 | **[eza](https://eza.rocks)** | `ls` with icons, colors, git status, and tree views |
-| 🪟 | **[tmux](https://github.com/tmux/tmux)** | Terminal multiplexer with pastel status bar at top |
-| ✏️ | **[NeoVim](https://neovim.io) + [LazyVim](https://lazyvim.github.io)** | IDE-grade editor, pre-configured, zero setup |
-| 🤖 | **Claude Code** | AI assistance inside NeoVim |
+| Tool | What it does |
+|---|---|
+| **[Nerd Font](https://www.nerdfonts.com/)** | Your choice of 10 patched fonts — JetBrains Mono, Commit Mono, Cascadia Code, and more |
+| **[Ghostty](https://ghostty.org)** | GPU-accelerated terminal emulator by Mitchell Hashimoto |
+| **[Fish](https://fishshell.com/) or [Zsh](https://www.zsh.org/)** | Fish (recommended) or Zsh (POSIX-compatible) |
+| **[Starship](https://starship.rs)** | Cross-shell prompt — git, language versions, right-aligned and clean |
+| **[eza](https://eza.rocks)** | `ls` with icons, colors, git status, and tree views |
+| **[tmux](https://github.com/tmux/tmux)** | Terminal multiplexer with pastel status bar at top |
+| **[NeoVim](https://neovim.io) + [LazyVim](https://lazyvim.github.io)** | IDE-grade editor, pre-configured, zero setup |
+| **Claude Code** | AI assistance inside NeoVim |
 
 ## How it works
 
@@ -145,20 +145,19 @@ macOS or Linux · Python 3.8+ · bash · git · Homebrew (macOS) or apt/dnf/pacm
 
 **cosyTerm is a curated product, not a framework.**
 
-The tool selection is intentional and limited. We don't offer 15 theme options, 8 prompt engines, or 4 terminal emulators. We picked one cohesive set of tools that work well together, themed them consistently, and made the whole thing installable in one command.
+The tool selection is intentional and limited. I don't offer 15 theme options, 8 prompt engines, or 4 terminal emulators. I picked one cohesive set of tools that work well together, themed them consistently, and made the whole thing installable in one command.
 
 This is opinionated by design. The constraint is the feature.
 
-If you want granular control over every aspect of your terminal, there are excellent tools for that — [chezmoi](https://www.chezmoi.io/), [GNU Stow](https://www.gnu.org/software/stow/), bare git repos. cosyTerm is for everyone else: developers who want a beautiful terminal and don't want to think about it.
 
-### What we will add
+### What I will add
 
 - New tools that improve the curated experience (e.g., better git UIs, fuzzy finders)
 - Platform support (more Linux distros, WSL)
 - Additional Nerd Font options
 - Quality-of-life improvements to the installer flow
 
-### What we won't add
+### What I won't add
 
 - Multiple competing themes or colour schemes
 - Alternative tools that do the same thing as an existing pick
@@ -167,9 +166,9 @@ If you want granular control over every aspect of your terminal, there are excel
 
 ## Contributing
 
-Open source contributions are welcome. Whether it's bug fixes, installer improvements, new platform support, or better defaults — we'd love the help.
+Open source contributions are welcome. Whether it's bug fixes, installer improvements, new platform support, or better defaults — I'd love the help.
 
-Before adding a new tool or feature, open an issue to discuss it. We want to keep the curated feel, so not everything will be a fit, but the conversation is always welcome.
+Before adding a new tool or feature, open an issue to discuss it. I want to keep the curated feel, so not everything will be a fit, but the conversation is always welcome.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
