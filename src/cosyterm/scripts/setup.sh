@@ -22,11 +22,13 @@
 #   - Logs everything to ~/terminal-setup.log
 #
 # Usage:
-#   chmod +x terminal-setup.sh
-#   ./terminal-setup.sh
+#   This script is invoked by the `cosyterm` Python CLI — end users should not
+#   run it directly. See the project README for installation instructions.
 #
-# To run a specific section only, set the environment variable:
-#   SKIP_TO=starship ./terminal-setup.sh
+#   To re-run a single step, use:  cosyterm install <step>
+#   (steps: font, ghostty, shell, starship, eza, tmux, neovim)
+#
+# See docs/automation.md for scripted / non-interactive usage.
 # =============================================================================
 
 set -euo pipefail
