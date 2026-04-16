@@ -1,0 +1,5 @@
+{
+  "LazyVim": { "branch": "main", "commit": "deadbeefcafebabedeadbeefcafebabedeadbeef" },
+  "tokyonight.nvim": { "branch": "main", "commit": "1234567890abcdef1234567890abcdef12345678" },
+  "nvim-treesitter": { "branch": "master", "commit": "abcdef1234567890abcdef1234567890abcdef12" }
+}

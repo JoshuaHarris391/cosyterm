@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Fake git for cosyterm tests. Implements just enough of 'git clone' to let
+# setup.sh believe it fetched LazyVim. Everything else is a no-op exit 0.
+#
+# When COSYTERM_FAKE_LOG is set, every invocation's args are appended to it.
+
+if [[ -n "${COSYTERM_FAKE_LOG:-}" ]]; then
+    printf 'git %s\n' "$*" >> "$COSYTERM_FAKE_LOG"
+fi
+
+case "${1:-}" in
+    clone)
+        shift
+        # Strip any -b <ref> / --branch <ref> flags.
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                -b|--branch) shift 2 ;;
+                --depth|--depth=*) shift ;;
+                --*) shift ;;
+                *) break ;;
+            esac
+        done
+        src="${1:-}"
+        dest="${2:-}"
+        if [[ -z "$dest" ]]; then
+            echo "fake git: missing clone destination" >&2
+            exit 1
+        fi
+        mkdir -p "$dest"
+        # Minimal LazyVim-starter-ish fingerprint so setup.sh's follow-up
+        # rm -rf of .git works and the result looks plausible to humans.
+        mkdir -p "$dest/.git" "$dest/lua/config" "$dest/lua/plugins"
+        cat > "$dest/init.lua" <<'EOF'
+-- fake LazyVim starter — installed by cosyterm test harness
+require("config.lazy")
+EOF
+        cat > "$dest/lua/config/lazy.lua" <<'EOF'
+-- fake LazyVim loader stub
+EOF
+        cat > "$dest/README.md" <<EOF
+# fake LazyVim starter
+source: $src
+installed-by: cosyterm test harness
+EOF
+        exit 0
+        ;;
+    *)
+        # Every other git subcommand: pretend it succeeded.
+        exit 0
+        ;;
+esac

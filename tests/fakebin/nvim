@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Fake nvim so has_cmd nvim returns true in tests without requiring real nvim.
+[[ -n "${COSYTERM_FAKE_LOG:-}" ]] && printf 'nvim %s\n' "$*" >> "$COSYTERM_FAKE_LOG"
+exit 0
