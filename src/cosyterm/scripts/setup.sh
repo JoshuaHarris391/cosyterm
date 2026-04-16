@@ -4,6 +4,11 @@
 # Based on: https://devcenter.upsun.com/posts/my-terminal-setup-mac-linux/
 # Author of original guide: Guillaume Moigneu (Upsun)
 #
+# Requires bash >= 4.0. On macOS, /bin/bash is 3.2 — the Python wrapper
+# (cosyterm.core._check_bash) gates this before invocation, so reaching this
+# script means bash 4+ is in effect. Safe to use associative arrays, ${var,,},
+# &>> redirection, readarray, etc.
+#
 # What this script installs & configures:
 #   1. Nerd Font (your choice)     — Monospace font with icons for terminal use
 #   2. Ghostty                     — GPU-accelerated terminal emulator
@@ -131,6 +136,10 @@ LAZYVIM_REPO="https://github.com/LazyVim/starter"
 BACKUP_DIR="${COSYTERM_BACKUP_DIR:-$HOME/.terminal-setup-backups/$(date +%Y%m%d_%H%M%S)}"
 MANIFEST_FILE="$BACKUP_DIR/manifest.tsv"
 LOG_FILE="${COSYTERM_LOG_FILE:-$HOME/terminal-setup.log}"
+# Honour XDG_CONFIG_HOME. Users who set it (e.g. $HOME/.xdg) expect fish,
+# ghostty, starship, nvim, tmux to read from there — writing to $HOME/.config
+# when XDG_CONFIG_HOME points elsewhere is a silent no-op.
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}"
 SHELL_CHOICE=""  # will be set interactively: "fish" or "zsh"
 
 # Dev-mode / non-interactive overrides (for tests and scripted installs):
@@ -363,10 +372,21 @@ preflight() {
         exit 1
     fi
 
-    # Ensure curl or wget is available
-    if ! has_cmd curl && ! has_cmd wget; then
-        log_error "Neither curl nor wget found. Please install one of them."
-        exit 1
+    # Ensure curl is available. Starship's installer pipes from curl and
+    # fresh Ubuntu server images don't always ship it — try to apt-install
+    # before falling back on wget. Linux only; macOS has curl preinstalled.
+    if ! has_cmd curl; then
+        if [[ "$OS" == "linux" ]] && [[ "$PKG_MANAGER" == "apt" ]]; then
+            log_warn "curl not found — attempting 'sudo apt-get install curl' so Starship/theme downloads work."
+            if ! sudo apt-get install -y curl 2>>"$LOG_FILE"; then
+                log_error "Failed to install curl via apt. Install it manually: sudo apt-get install curl"
+                exit 1
+            fi
+            log_success "curl installed"
+        elif ! has_cmd wget; then
+            log_error "Neither curl nor wget found. Please install one of them."
+            exit 1
+        fi
     fi
 
     # Ensure unzip is available (needed for font install)
@@ -463,9 +483,14 @@ install_nerd_font() {
                 unzip -qo "$tmp_dir/font.zip" -d "$font_dir"
                 rm -rf "$tmp_dir"
 
-                # Rebuild font cache
+                # Rebuild font cache. Without fc-cache, fontconfig doesn't
+                # pick up the new files and Ghostty silently falls back to
+                # its default — users then see boxes instead of icons.
                 if has_cmd fc-cache; then
-                    fc-cache -fv "$font_dir" >> "$LOG_FILE" 2>&1
+                    fc-cache -f "$font_dir" >> "$LOG_FILE" 2>&1
+                else
+                    log_warn "fc-cache not found — font won't register until fontconfig is installed."
+                    log_warn "  Fix: ${BOLD}sudo apt-get install fontconfig${NC} then ${BOLD}fc-cache -f $font_dir${NC}"
                 fi
 
                 log_success "Font installed to $font_dir"
@@ -481,7 +506,7 @@ install_nerd_font() {
 
     # Update Ghostty config if it exists
     if $font_installed && [[ -n "$FONT_FAMILY" ]]; then
-        local ghostty_config="$HOME/.config/ghostty/config"
+        local ghostty_config="$CONFIG_DIR/ghostty/config"
         if [[ -f "$ghostty_config" ]]; then
             if grep -q "^font-family" "$ghostty_config"; then
                 backup_if_exists "$ghostty_config"
@@ -536,7 +561,7 @@ install_ghostty() {
     fi
 
     # Configure Ghostty (regardless of whether we just installed it)
-    local ghostty_config_dir="$HOME/.config/ghostty"
+    local ghostty_config_dir="$CONFIG_DIR/ghostty"
     local ghostty_config="$ghostty_config_dir/config"
     local ghostty_themes_dir="$ghostty_config_dir/themes"
 
@@ -627,6 +652,16 @@ install_shell() {
         log_success "$SHELL_CHOICE is already installed"
     fi
 
+    # Fish 3.2+ is required: we emit `fish_add_path` during PATH migration,
+    # which doesn't exist in older versions. Refusing old fish up front is
+    # cleaner than shipping a parallel fallback codepath.
+    if [[ "$SHELL_CHOICE" == "fish" ]]; then
+        _require_fish_min_version || {
+            SHELL_CHOICE="skip"
+            return 1
+        }
+    fi
+
     # Ask about default shell — this is the risky bit
     echo ""
     log "${YELLOW}Changing your default shell requires logging out and back in.${NC}"
@@ -645,12 +680,37 @@ install_shell() {
 
         case "$fish_method" in
             1)
-                if confirm "Run 'chsh -s $(which fish)' to set Fish as your default shell?"; then
-                    local fish_path
-                    fish_path=$(which fish)
+                # Resolve the fish binary through symlinks. snap installs
+                # produce a /snap/bin/fish symlink that chsh may refuse —
+                # warn the user to install via apt instead.
+                local fish_path
+                fish_path=$(_resolve_fish_path)
+                if [[ -z "$fish_path" ]]; then
+                    log_error "Couldn't locate the fish binary. Skipping default-shell change."
+                    return 0
+                fi
+                if [[ "$fish_path" == /snap/* ]]; then
+                    log_warn "Fish is installed via snap at $fish_path."
+                    log_warn "  chsh often rejects /snap paths. Consider installing fish via apt:"
+                    log_warn "    ${BOLD}sudo apt-get install fish${NC}"
+                    if ! confirm "Attempt chsh anyway?"; then
+                        log_warn "Skipped default-shell change."
+                        return 0
+                    fi
+                fi
 
-                    # Ensure fish is in /etc/shells (required for chsh)
+                if confirm "Run 'chsh -s $fish_path' to set Fish as your default shell?"; then
+                    # Ensure fish is in /etc/shells (required for chsh).
+                    # This needs sudo — if we're running non-interactively
+                    # (COSYTERM_YES=1) and sudo isn't cached, the tee would
+                    # hang waiting for a password. Bail out gracefully.
                     if ! grep -qx "$fish_path" /etc/shells 2>/dev/null; then
+                        if [[ "${COSYTERM_YES:-}" == "1" ]] && ! sudo -n true 2>/dev/null; then
+                            log_warn "sudo not cached and running non-interactively — skipping /etc/shells update."
+                            log_warn "  Run manually: ${BOLD}echo '$fish_path' | sudo tee -a /etc/shells${NC}"
+                            log_warn "  Then: ${BOLD}chsh -s $fish_path${NC}"
+                            return 0
+                        fi
                         log "Adding $fish_path to /etc/shells (requires sudo)..."
                         echo "$fish_path" | sudo tee -a /etc/shells > /dev/null
                     fi
@@ -661,7 +721,7 @@ install_shell() {
                 ;;
             2)
                 log "Adding Fish launch to Ghostty config..."
-                local ghostty_config="$HOME/.config/ghostty/config"
+                local ghostty_config="$CONFIG_DIR/ghostty/config"
                 if [[ -f "$ghostty_config" ]]; then
                     # Only add if not already present
                     if ! grep -q "command.*fish" "$ghostty_config" 2>/dev/null; then
@@ -694,14 +754,128 @@ install_shell() {
 }
 
 # =============================================================================
+# FISH PATH RESOLUTION — for /etc/shells and chsh correctness
+# =============================================================================
+# `which fish` reports the first PATH hit, which is often a symlink. chsh
+# validates its argument against /etc/shells as a real path, so we resolve
+# through symlinks here. macOS doesn't ship `readlink -f`; prefer `realpath`
+# (modern macOS has it), fall back to Python.
+_resolve_fish_path() {
+    local raw
+    raw=$(command -v fish 2>/dev/null) || return 1
+    [[ -n "$raw" ]] || return 1
+    if has_cmd realpath; then
+        realpath "$raw" 2>/dev/null || echo "$raw"
+    elif has_cmd python3; then
+        python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$raw" 2>/dev/null || echo "$raw"
+    else
+        echo "$raw"
+    fi
+}
+
+# =============================================================================
+# FISH VERSION GATE — we depend on fish_add_path (fish 3.2+)
+# =============================================================================
+# Parses `fish --version`, which looks like: "fish, version 3.7.1".
+# Returns 0 if fish is >= 3.2, 1 otherwise (with a clear remediation message).
+_require_fish_min_version() {
+    local required_major=3
+    local required_minor=2
+    local version_string major minor
+    if ! version_string=$(fish --version 2>/dev/null); then
+        log_error "Fish installed but 'fish --version' failed."
+        return 1
+    fi
+    # Extract "3.7.1" → parse major/minor. Regex is bash 3.2+ safe.
+    if [[ ! "$version_string" =~ ([0-9]+)\.([0-9]+) ]]; then
+        log_warn "Could not parse Fish version from: $version_string"
+        log_warn "Continuing, but PATH migration may fail if Fish is older than ${required_major}.${required_minor}."
+        return 0
+    fi
+    major="${BASH_REMATCH[1]}"
+    minor="${BASH_REMATCH[2]}"
+    if (( major > required_major )) || (( major == required_major && minor >= required_minor )); then
+        log_success "Fish $major.$minor detected (>= $required_major.$required_minor)"
+        return 0
+    fi
+
+    log_error "Fish $major.$minor is too old — cosyterm requires Fish >= $required_major.$required_minor"
+    log_error "  PATH migration uses 'fish_add_path' which was added in 3.2."
+    if [[ "$OS" == "macos" ]]; then
+        log_error "  Fix: ${BOLD}brew upgrade fish${NC}"
+    elif [[ "$PKG_MANAGER" == "apt" ]]; then
+        log_error "  Fix: add the fish PPA, then reinstall:"
+        log_error "    ${BOLD}sudo apt-add-repository ppa:fish-shell/release-3${NC}"
+        log_error "    ${BOLD}sudo apt update && sudo apt install fish${NC}"
+    else
+        log_error "  Fix: upgrade fish via your package manager or install from fishshell.com"
+    fi
+    return 1
+}
+
+# =============================================================================
+# SED HELPER — portable in-place edit that cleans up after itself
+# =============================================================================
+# BSD/macOS sed requires `-i ''`, GNU sed accepts `-i` alone. Using a tempfile
+# + atomic mv sidesteps the incompatibility and leaves no stray .bak files
+# if the script is interrupted mid-edit.
+_sed_inplace() {
+    local expr="$1"
+    local file="$2"
+    local tmp
+    tmp=$(mktemp "${file}.XXXXXX")
+    # shellcheck disable=SC2064  # $tmp intentionally expanded at trap-install time.
+    trap "rm -f '$tmp'" EXIT
+    if sed "$expr" "$file" > "$tmp"; then
+        mv "$tmp" "$file"
+    else
+        rm -f "$tmp"
+        trap - EXIT
+        return 1
+    fi
+    trap - EXIT
+}
+
+# =============================================================================
+# SAFE PATH TOKEN — reject input that would break emitted fish
+# =============================================================================
+# An unbalanced `(` in a fish string triggers command substitution; that was
+# the 7716fc9 bug. Belt-and-braces filter for all shell metacharacters.
+_is_safe_path_token() {
+    local tok="$1"
+    [[ -z "$tok" ]] && return 1
+    if [[ "$tok" == *'('* || "$tok" == *')'* \
+       || "$tok" == *'='* || "$tok" == *'*'* \
+       || "$tok" == *'?'* || "$tok" == *'{'* \
+       || "$tok" == *'}'* || "$tok" == *'`'* ]]; then
+        return 1
+    fi
+    return 0
+}
+
+# =============================================================================
 # PATH MIGRATION — scan Bash/Zsh configs and translate to Fish syntax
 # =============================================================================
+# Design notes:
+#  - Writes to $CONFIG_DIR/fish/conf.d/00-cosyterm-path.fish so we don't
+#    monopolise config.fish. Fish sources conf.d/*.fish before config.fish,
+#    so the emitted fish_add_path calls run early.
+#  - Uses `fish_add_path -g` (fish 3.2+) instead of `set -gx PATH`. fish_add_path
+#    is idempotent and deduplicates, so nested shells don't grow PATH unboundedly
+#    and it plays nicely with existing fish_user_paths universal vars.
+#  - Case-sensitive PATH= scan avoids zsh's `fpath=`, `cdpath=`, `manpath=`.
+#    A separate branch handles zsh's lowercase tied-array `path=(...)` form.
+#  - Split on `:` via IFS — never on whitespace. A path like
+#    "/Applications/My App/bin" must survive intact.
+#  - nvm and conda are surfaced as post-install TODOs in $BACKUP_DIR/TODO.md
+#    rather than written into fish; emitting a comment into fish causes the
+#    next migration scan to re-match it and grow the block forever.
 _migrate_path_to_fish() {
     log_section "PATH migration (Bash/Zsh → Fish)"
 
     log "Fish doesn't read .zshrc, .bashrc, or .bash_profile. Any PATH exports"
-    log "in those files (e.g. from Homebrew, nvm, pyenv, conda, cargo) won't"
-    log "carry over automatically. Let's scan for them."
+    log "in those files (e.g. from Homebrew, pyenv, cargo) won't carry over"
+    log "automatically. Let's scan for them."
     echo ""
 
     # Collect all the shell config files that might contain PATH exports
@@ -716,23 +890,30 @@ _migrate_path_to_fish() {
         return 0
     fi
 
-    # Extract PATH-related lines from all config files.
-    # Pattern intentionally case-sensitive on PATH=: zsh's lowercase `path=(...)`,
-    # `fpath=`, `cdpath=`, `manpath=` etc. are NOT PATH exports — matching them
-    # produces malformed fish (unbalanced parens from `fpath=(...)` are the
-    # worst offender — they trigger fish command-substitution and brick startup).
+    # Scan regex. Anchored on the left where possible to avoid false positives:
+    #   - uppercase PATH=          (case-sensitive, dodges fpath/cdpath/manpath)
+    #   - lowercase path=(         (zsh tied-array — paren is the disambiguator)
+    #   - eval "$(brew shellenv)"
+    #   - source .cargo/env
+    #   - eval "$(pyenv init ...)"
+    #   - NVM_DIR or nvm.sh
+    #   - any conda-related line
+    local scan_regex='(^[[:space:]]*(export[[:space:]]+)?PATH=|^[[:space:]]*path=\(|eval.*brew[[:space:]]shellenv|source.*(\.cargo/env|cargo)|eval.*(pyenv[[:space:]]init|pyenv[[:space:]]virtualenv)|NVM_DIR|nvm\.sh|conda)'
+
     local -a path_lines=()
     local -a path_sources=()
     for f in "${source_files[@]}"; do
         while IFS= read -r line; do
-            # Strip trailing inline comments so "export PATH=/foo:$PATH  # note"
-            # doesn't leak "# note" into the extracted token list.
+            # Strip trailing inline comments before any matching — stops
+            # "# note" from leaking into the token stream.
             line="${line%%#*}"
-            # Skip empty / whitespace-only lines after comment strip
             [[ "$line" =~ ^[[:space:]]*$ ]] && continue
+            # Guard against re-scanning our own markers if a user imports
+            # someone else's dotfiles that already contain a migration block.
+            [[ "$line" == *"PATH migration from Bash/Zsh"* ]] && continue
             path_lines+=("$line")
             path_sources+=("$(basename "$f")")
-        done < <(grep -E '(^[[:space:]]*(export[[:space:]]+)?PATH=|eval.*brew shellenv|source.*(\.cargo/env|cargo)|eval.*(pyenv init|pyenv virtualenv)|NVM_DIR|nvm\.sh|conda)' "$f" 2>/dev/null)
+        done < <(grep -E "$scan_regex" "$f" 2>/dev/null)
     done
 
     if [[ ${#path_lines[@]} -eq 0 ]]; then
@@ -740,7 +921,6 @@ _migrate_path_to_fish() {
         return 0
     fi
 
-    # Display what we found
     log "Found ${BOLD}${#path_lines[@]}${NC} PATH-related line(s) across your shell configs:"
     echo ""
     for i in "${!path_lines[@]}"; do
@@ -748,136 +928,176 @@ _migrate_path_to_fish() {
     done
     echo ""
 
-    if ! confirm "Translate these PATH exports to Fish syntax and add them to config.fish?"; then
+    if ! confirm "Translate these to fish_add_path and write to fish conf.d/?"; then
         log_warn "Skipped PATH migration. You can add them manually later."
-        log "  Fish syntax:  set -gx PATH /your/path \$PATH"
+        log "  Fish syntax:  fish_add_path -g /your/path"
         return 0
     fi
 
-    local fish_config="$HOME/.config/fish/config.fish"
-    mkdir -p "$HOME/.config/fish"
+    local fish_confd="$CONFIG_DIR/fish/conf.d"
+    local fish_legacy="$CONFIG_DIR/fish/config.fish"
+    local fish_target="$fish_confd/00-cosyterm-path.fish"
+    mkdir -p "$fish_confd"
 
-    # Check if we've already added a migration block
-    if grep -q "# PATH migration from Bash/Zsh" "$fish_config" 2>/dev/null; then
-        log_warn "PATH migration block already exists in config.fish."
-        if ! confirm "Replace existing PATH migration block with a fresh scan?"; then
-            return 0
-        fi
-        # Remove the old block (between the markers). sed -i.bak is needed for
-        # BSD/macOS sed compatibility; clean up the .bak file afterwards so it
-        # doesn't accumulate in ~/.config/fish/ on repeated runs.
-        sed -i.bak '/# PATH migration from Bash\/Zsh — START/,/# PATH migration from Bash\/Zsh — END/d' "$fish_config"
-        rm -f "${fish_config}.bak"
+    # Earlier cosyterm versions wrote the migration block to config.fish. If
+    # we find it there, strip it so it can't conflict with the conf.d version.
+    if [[ -f "$fish_legacy" ]] && grep -q "# PATH migration from Bash/Zsh" "$fish_legacy" 2>/dev/null; then
+        log "Removing legacy migration block from $fish_legacy..."
+        _sed_inplace '/# PATH migration from Bash\/Zsh — START/,/# PATH migration from Bash\/Zsh — END/d' "$fish_legacy" \
+            || log_warn "Failed to strip legacy block — check $fish_legacy manually."
     fi
 
-    # Build the Fish PATH block
-    local fish_block=""
-    fish_block+=$'\n'"# PATH migration from Bash/Zsh — START"$'\n'
-    fish_block+="# Auto-generated by terminal-setup.sh on $(date '+%Y-%m-%d %H:%M')"$'\n'
-    fish_block+="# Original sources: ${source_files[*]}"$'\n'
+    if [[ -f "$fish_target" ]]; then
+        log_warn "Existing $fish_target will be replaced with a fresh scan."
+    fi
 
-    local added=0
-    local skipped=0
+    # Pick a canonical brew shellenv path for the architecture — don't gate
+    # on the brew binary existing yet (step 4 installs brew on a fresh Mac,
+    # which happens AFTER this migration runs).
+    local arch brew_shellenv
+    arch=$(uname -m 2>/dev/null || echo unknown)
+    case "$OS:$arch" in
+        macos:arm64)  brew_shellenv="/opt/homebrew/bin/brew shellenv | source" ;;
+        macos:*)      brew_shellenv="/usr/local/bin/brew shellenv | source" ;;
+        linux:*)      brew_shellenv="/home/linuxbrew/.linuxbrew/bin/brew shellenv | source" ;;
+        *)            brew_shellenv="/opt/homebrew/bin/brew shellenv | source" ;;
+    esac
+
+    local -a fish_lines=()
+    local -a todo_lines=()
+    fish_lines+=("# PATH migration from Bash/Zsh — START")
+    fish_lines+=("# Auto-generated by cosyterm on $(date '+%Y-%m-%d %H:%M')")
+    fish_lines+=("# Original sources: ${source_files[*]}")
+    fish_lines+=("# Edit freely — cosyterm only rewrites this file, never other .fish files.")
+
+    local added=0 skipped=0
 
     for line in "${path_lines[@]}"; do
-        # Try to extract the path being added from common patterns:
-        #   export PATH="/foo/bar:$PATH"
-        #   export PATH="$PATH:/foo/bar"
-        #   export PATH=$HOME/.local/bin:$PATH
-        #   PATH="/foo/bar:${PATH}"
-        #   eval "$(brew shellenv)"          — special case
-        #   source "$HOME/.cargo/env"        — special case
-        #   eval "$(pyenv init -)"           — special case
+        local translated=""
+        local comment="# from: $line"
 
-        local fish_line=""
-        local original_comment="# from: $line"
+        # ── brew shellenv ──
+        if [[ "$line" =~ eval.*brew[[:space:]]shellenv ]]; then
+            translated="$brew_shellenv"
 
-        # ── Special case: brew shellenv ──
-        if echo "$line" | grep -qE 'eval.*brew shellenv'; then
-            # Homebrew on Apple Silicon
-            if [[ -x /opt/homebrew/bin/brew ]]; then
-                fish_line="/opt/homebrew/bin/brew shellenv | source"
-            elif [[ -x /usr/local/bin/brew ]]; then
-                fish_line="/usr/local/bin/brew shellenv | source"
-            fi
+        # ── cargo/rustup env ──
+        elif [[ "$line" =~ source.*(\.cargo/env|cargo) ]]; then
+            translated='fish_add_path -g "$HOME/.cargo/bin"'
 
-        # ── Special case: cargo/rustup env ──
-        elif echo "$line" | grep -qE 'source.*(\.cargo/env|cargo)'; then
-            fish_line="set -gx PATH \$HOME/.cargo/bin \$PATH"
+        # ── pyenv init ──
+        elif [[ "$line" =~ eval.*(pyenv[[:space:]]init|pyenv[[:space:]]virtualenv) ]]; then
+            translated='status is-login; and pyenv init --path | source'
 
-        # ── Special case: pyenv init ──
-        elif echo "$line" | grep -qE 'eval.*(pyenv init|pyenv virtualenv)'; then
-            fish_line="status is-login; and pyenv init --path | source"
+        # ── nvm: fish needs the nvm.fish plugin; don't emit anything ──
+        elif [[ "$line" =~ NVM_DIR ]] || [[ "$line" =~ nvm\.sh ]]; then
+            todo_lines+=("nvm detected: install the nvm.fish plugin (https://github.com/jorgebucaran/nvm.fish). Source line: $line")
+            ((skipped++))
+            continue
 
-        # ── Special case: nvm ──
-        elif echo "$line" | grep -qiE '(NVM_DIR|nvm\.sh)'; then
-            fish_line="# nvm: Fish users should use 'nvm.fish' or 'bass' plugin instead"
-            fish_line+=$'\n'"# See: https://github.com/jorgebucaran/nvm.fish"
+        # ── conda: surface as a post-install step ──
+        elif [[ "$line" =~ conda ]]; then
+            todo_lines+=("conda detected: run 'conda init fish' to set up conda for fish. Source line: $line")
+            ((skipped++))
+            continue
 
-        # ── Special case: conda init ──
-        elif echo "$line" | grep -qiE 'conda'; then
-            fish_line="# conda: Run 'conda init fish' to set up conda for Fish"
+        # ── zsh tied-array path=(...) ──
+        elif [[ "$line" =~ ^[[:space:]]*path=\( ]]; then
+            # Strip up to and including '(', then from ')' onwards. Remove
+            # $path/${path} references and stray quotes. Tokenise on whitespace
+            # — zsh tied-arrays use whitespace between entries, not colons.
+            local body="$line"
+            body="${body#*\(}"
+            body="${body%%)*}"
+            body=$(printf '%s' "$body" | sed -E 's/\$\{?path\}?//g; s/["'\'']//g')
+            local tok clean=""
+            for tok in $body; do
+                # Expand leading ~ so fish doesn't double-quote it into a literal.
+                [[ "$tok" == "~" || "$tok" == "~/"* ]] && tok="\$HOME${tok#\~}"
+                if _is_safe_path_token "$tok"; then
+                    clean+=$'\n'"fish_add_path -g \"$tok\""
+                fi
+            done
+            translated="${clean#$'\n'}"
 
-        # ── General pattern: extract paths from export PATH="..." ──
+        # ── General PATH=... export ──
         else
-            # Strip: export, quotes, $PATH, ${PATH}, leading/trailing colons
             local extracted
-            extracted=$(echo "$line" \
+            extracted=$(printf '%s' "$line" \
                 | sed -E 's/^[[:space:]]*(export[[:space:]]+)?//' \
                 | sed -E 's/^PATH[[:space:]]*=[[:space:]]*//' \
                 | sed -E 's/["'\'']//g' \
                 | sed -E 's/\$\{?PATH\}?//g' \
-                | sed -E 's/^://;s/:$//' \
-                | sed -E 's/:/ /g')
+                | sed -E 's/^://;s/:$//')
 
-            if [[ -n "$extracted" && "$extracted" != " " ]]; then
-                # Each space-separated token is a path to add
-                for p in $extracted; do
-                    # Expand $HOME references for the comment, keep variable for the actual line
-                    local fish_path="$p"
-                    # Defence in depth: reject tokens containing characters that
-                    # produce malformed fish. An unbalanced `(` turns the line
-                    # into a command substitution and blows up shell startup.
-                    if [[ "$fish_path" == *'('* || "$fish_path" == *')'*  \
-                       || "$fish_path" == *'='* || "$fish_path" == *'*'*  \
-                       || "$fish_path" == *'?'* || "$fish_path" == *'{'*  \
-                       || "$fish_path" == *'}'* ]]; then
-                        continue
-                    fi
-                    # Convert $HOME to Fish-compatible form (Fish understands $HOME fine)
-                    if [[ -n "$fish_path" && "$fish_path" != "\$PATH" ]]; then
-                        fish_line+="set -gx PATH ${fish_path} \$PATH"$'\n'
+            if [[ -n "$extracted" ]]; then
+                # Split on colon, not whitespace — preserves spaces inside
+                # directory names like "/Applications/My App/bin".
+                local -a tokens=()
+                IFS=: read -ra tokens <<< "$extracted"
+                local tok clean=""
+                for tok in "${tokens[@]}"; do
+                    # Trim leading/trailing whitespace around each token.
+                    tok="${tok#"${tok%%[![:space:]]*}"}"
+                    tok="${tok%"${tok##*[![:space:]]}"}"
+                    [[ -z "$tok" ]] && continue
+                    [[ "$tok" == "~" || "$tok" == "~/"* ]] && tok="\$HOME${tok#\~}"
+                    if _is_safe_path_token "$tok"; then
+                        clean+=$'\n'"fish_add_path -g \"$tok\""
                     fi
                 done
-                # Trim trailing newline
-                fish_line="${fish_line%$'\n'}"
+                translated="${clean#$'\n'}"
             fi
         fi
 
-        if [[ -n "$fish_line" ]]; then
-            fish_block+="$original_comment"$'\n'
-            fish_block+="$fish_line"$'\n'
+        if [[ -n "$translated" ]]; then
+            fish_lines+=("$comment")
+            while IFS= read -r emitted; do
+                [[ -n "$emitted" ]] && fish_lines+=("$emitted")
+            done <<< "$translated"
             ((added++))
         else
-            fish_block+="# SKIPPED (couldn't parse): $line"$'\n'
+            fish_lines+=("# SKIPPED (couldn't parse): $line")
             ((skipped++))
         fi
     done
 
-    fish_block+="# PATH migration from Bash/Zsh — END"$'\n'
+    fish_lines+=("# PATH migration from Bash/Zsh — END")
 
-    # Append to fish config
-    echo "$fish_block" >> "$fish_config"
+    # Atomic write via tempfile — a crash mid-write leaves the previous
+    # target file intact.
+    local tmp_target
+    tmp_target=$(mktemp "${fish_target}.XXXXXX")
+    # shellcheck disable=SC2064  # $tmp_target intentionally expanded at trap-install time.
+    trap "rm -f '$tmp_target'" EXIT
+    printf '%s\n' "${fish_lines[@]}" > "$tmp_target"
+    mv "$tmp_target" "$fish_target"
+    trap - EXIT
 
-    log_success "Added $added PATH export(s) to config.fish"
+    log_success "Wrote $added entry/entries to $fish_target"
     if (( skipped > 0 )); then
         log_warn "Skipped $skipped line(s) that couldn't be auto-translated."
-        log "  Check config.fish for lines marked SKIPPED and translate manually."
+    fi
+
+    # Post-install TODO file — nvm, conda and anything else that needs user
+    # action ends up here. Stored alongside the run's backup for discoverability.
+    if [[ ${#todo_lines[@]} -gt 0 ]]; then
+        mkdir -p "$BACKUP_DIR"
+        local todo_file="$BACKUP_DIR/TODO.md"
+        {
+            printf '# cosyterm post-install follow-ups\n\n'
+            printf 'These items were detected in your bash/zsh config but need manual action:\n\n'
+            for t in "${todo_lines[@]}"; do
+                printf -- '- %s\n' "$t"
+            done
+        } >> "$todo_file"
+        log_warn "Post-install actions logged to: ${BOLD}$todo_file${NC}"
+        for t in "${todo_lines[@]}"; do
+            log_warn "  $t"
+        done
     fi
 
     echo ""
-    log "Review the additions with: ${BOLD}cat ~/.config/fish/config.fish${NC}"
-    log "You can edit or remove any lines between the START/END markers."
+    log "Review with: ${BOLD}cat $fish_target${NC}"
 }
 
 # =============================================================================
@@ -933,11 +1153,11 @@ install_starship() {
     fi
 
     # Write Starship config (the toml is harmless without the binary, so always offer)
-    local starship_config="$HOME/.config/starship.toml"
+    local starship_config="$CONFIG_DIR/starship.toml"
 
     if confirm "Write Starship config to $starship_config? (Catppuccin Mocha palette, git/node/python/docker context)"; then
         backup_if_exists "$starship_config"
-        mkdir -p "$HOME/.config"
+        mkdir -p "$CONFIG_DIR"
 
         cat > "$starship_config" << 'STARSHIP_EOF'
 # Starship prompt configuration
@@ -1078,38 +1298,50 @@ STARSHIP_EOF
 
 _hook_starship() {
     if [[ "$SHELL_CHOICE" == "fish" ]]; then
-        local fish_config="$HOME/.config/fish/config.fish"
-        mkdir -p "$HOME/.config/fish"
+        # We write Homebrew PATH + Starship hook into conf.d/ instead of
+        # config.fish. Fish sources conf.d/*.fish alphabetically before
+        # config.fish, so 10-cosyterm-init runs after 00-cosyterm-path —
+        # Starship is initialised once PATH is ready.
+        local fish_confd="$CONFIG_DIR/fish/conf.d"
+        local init_file="$fish_confd/10-cosyterm-init.fish"
+        mkdir -p "$fish_confd"
 
-        # ── Ensure Homebrew is on Fish's PATH ──
-        # This is critical: Fish doesn't read .zprofile/.zshrc, so Homebrew's
-        # PATH won't be inherited. Without this, 'starship', 'eza', and any
-        # Homebrew-installed tool will show "Unknown command" in Fish.
-        if ! grep -q "homebrew\|/opt/homebrew" "$fish_config" 2>/dev/null; then
-            local brew_path=""
-            if [[ -x /opt/homebrew/bin/brew ]]; then
-                brew_path="/opt/homebrew/bin/brew"
-            elif [[ -x /usr/local/bin/brew ]]; then
-                brew_path="/usr/local/bin/brew"
-            fi
+        # Canonical brew shellenv path per architecture (same logic as
+        # _migrate_path_to_fish). Emit unconditionally: fish will no-op if
+        # brew isn't present yet (e.g. on a fresh Mac, brew installs later).
+        local arch brew_shellenv
+        arch=$(uname -m 2>/dev/null || echo unknown)
+        case "$OS:$arch" in
+            macos:arm64)  brew_shellenv="/opt/homebrew/bin/brew shellenv | source" ;;
+            macos:*)      brew_shellenv="/usr/local/bin/brew shellenv | source" ;;
+            linux:*)      brew_shellenv="/home/linuxbrew/.linuxbrew/bin/brew shellenv | source" ;;
+            *)            brew_shellenv="/opt/homebrew/bin/brew shellenv | source" ;;
+        esac
 
-            if [[ -n "$brew_path" ]]; then
-                echo "" >> "$fish_config"
-                echo "# Homebrew PATH (required — Fish doesn't inherit this from Zsh/Bash)" >> "$fish_config"
-                echo "$brew_path shellenv | source" >> "$fish_config"
-                log_success "Homebrew PATH added to Fish config"
-            fi
-        else
-            log_success "Homebrew PATH already in Fish config"
-        fi
+        local tmp_init
+        tmp_init=$(mktemp "${init_file}.XXXXXX")
+        # shellcheck disable=SC2064  # $tmp_init intentionally expanded at trap-install time.
+        trap "rm -f '$tmp_init'" EXIT
+        {
+            echo "# cosyterm fish init — brew shellenv + Starship prompt"
+            echo "# Auto-generated; safe to edit. Re-run 'cosyterm install starship' to regenerate."
+            echo ""
+            echo "# Homebrew PATH — fish doesn't inherit from .zprofile/.bashrc."
+            echo "$brew_shellenv"
+            echo ""
+            echo "# Starship prompt"
+            echo "starship init fish | source"
+        } > "$tmp_init"
+        mv "$tmp_init" "$init_file"
+        trap - EXIT
+        log_success "Wrote Homebrew PATH + Starship init to $init_file"
 
-        if ! grep -q "starship init fish" "$fish_config" 2>/dev/null; then
-            echo "" >> "$fish_config"
-            echo "# Starship prompt" >> "$fish_config"
-            echo "starship init fish | source" >> "$fish_config"
-            log_success "Starship hooked into Fish config"
-        else
-            log_success "Starship is already hooked into Fish"
+        # Strip any starship/brew hooks we previously appended to config.fish
+        # (pre-conf.d cosyterm) so they don't double-init.
+        local fish_legacy="$CONFIG_DIR/fish/config.fish"
+        if [[ -f "$fish_legacy" ]] && grep -qE "starship init fish|brew shellenv" "$fish_legacy" 2>/dev/null; then
+            _sed_inplace '/# Starship prompt/,+1d; /# Homebrew PATH/,+1d; /starship init fish/d; /brew shellenv/d' "$fish_legacy" \
+                && log "Removed legacy starship/brew hooks from $fish_legacy"
         fi
     elif [[ "$SHELL_CHOICE" == "zsh" ]]; then
         local zshrc="$HOME/.zshrc"
@@ -1124,7 +1356,7 @@ _hook_starship() {
         fi
     else
         log_warn "No shell selected — you'll need to add the Starship init line manually."
-        log "  Fish:  Add 'starship init fish | source' to ~/.config/fish/config.fish"
+        log "  Fish:  Add 'starship init fish | source' to ${CONFIG_DIR}/fish/conf.d/10-cosyterm-init.fish"
         log "  Zsh:   Add 'eval \"\$(starship init zsh)\"' to ~/.zshrc"
         log "  Bash:  Add 'eval \"\$(starship init bash)\"' to ~/.bashrc"
     fi
@@ -1197,13 +1429,19 @@ _add_eza_aliases() {
     fi
 
     if [[ "$SHELL_CHOICE" == "fish" ]]; then
-        local fish_config="$HOME/.config/fish/config.fish"
-        mkdir -p "$HOME/.config/fish"
+        # Write aliases into conf.d so they live alongside the path/init
+        # cosyterm already manages, not inside the user's config.fish.
+        local fish_confd="$CONFIG_DIR/fish/conf.d"
+        local eza_file="$fish_confd/20-cosyterm-aliases.fish"
+        mkdir -p "$fish_confd"
 
-        if ! grep -q "alias ls=" "$fish_config" 2>/dev/null; then
-            cat >> "$fish_config" << 'FISH_EZA'
-
-# eza aliases (modern ls replacement)
+        local tmp_eza
+        tmp_eza=$(mktemp "${eza_file}.XXXXXX")
+        # shellcheck disable=SC2064  # $tmp_eza intentionally expanded at trap-install time.
+        trap "rm -f '$tmp_eza'" EXIT
+        cat > "$tmp_eza" << 'FISH_EZA'
+# cosyterm eza aliases (modern ls replacement)
+# Auto-generated; safe to edit.
 if command -v eza &> /dev/null
     alias ls='eza -lh --group-directories-first --icons=auto'
     alias lsa='ls -a'
@@ -1211,9 +1449,15 @@ if command -v eza &> /dev/null
     alias lta='lt -a'
 end
 FISH_EZA
-            log_success "eza aliases added to Fish config"
-        else
-            log_success "eza aliases already present in Fish config"
+        mv "$tmp_eza" "$eza_file"
+        trap - EXIT
+        log_success "eza aliases written to $eza_file"
+
+        # Legacy cleanup: strip the old block from config.fish if present.
+        local fish_legacy="$CONFIG_DIR/fish/config.fish"
+        if [[ -f "$fish_legacy" ]] && grep -q "eza aliases (modern ls replacement)" "$fish_legacy" 2>/dev/null; then
+            _sed_inplace "/# eza aliases (modern ls replacement)/,/^end$/d" "$fish_legacy" \
+                && log "Removed legacy eza aliases from $fish_legacy"
         fi
 
     elif [[ "$SHELL_CHOICE" == "zsh" ]]; then
@@ -1297,14 +1541,14 @@ install_tmux() {
     fi
 
     # ── Install Catppuccin theme (manual clone method — avoids TPM naming conflicts) ──
-    local catppuccin_dir="$HOME/.config/tmux/plugins/catppuccin/tmux"
+    local catppuccin_dir="$CONFIG_DIR/tmux/plugins/catppuccin/tmux"
 
     if [[ -d "$catppuccin_dir" ]]; then
         log_success "Catppuccin tmux theme is already installed"
     else
         if confirm "Install Catppuccin Mocha theme for tmux?"; then
             log "Cloning Catppuccin tmux theme..."
-            mkdir -p "$HOME/.config/tmux/plugins/catppuccin"
+            mkdir -p "$CONFIG_DIR/tmux/plugins/catppuccin"
             git clone -b v2.3.0 https://github.com/catppuccin/tmux.git "$catppuccin_dir" 2>>"$LOG_FILE"
             if [[ -d "$catppuccin_dir" ]]; then
                 log_success "Catppuccin tmux theme installed"
@@ -1366,7 +1610,7 @@ set -g @catppuccin_flavor "mocha"
 set -g @catppuccin_window_status_style "rounded"
 
 # Load Catppuccin (manual install method)
-run ~/.config/tmux/plugins/catppuccin/tmux/catppuccin.tmux
+run ${CONFIG_DIR}/tmux/plugins/catppuccin/tmux/catppuccin.tmux
 
 # ── Status bar modules ──
 set -g status-right-length 100
@@ -1416,7 +1660,7 @@ TMUX_EOF
 #   NVIM_IS_GITREPO      — 1 if .config/nvim is a git repo
 #   NVIM_FILE_COUNT      — rough file count under .config/nvim
 nvim_detect_existing() {
-    local nvim_config="$HOME/.config/nvim"
+    local nvim_config="$CONFIG_DIR/nvim"
     NVIM_HAS_LAZYLOCK=0
     NVIM_IS_GITREPO=0
     NVIM_FILE_COUNT=0
@@ -1463,7 +1707,7 @@ nvim_preflight_choice() {
     echo "" >&2
     echo -e "${BOLD}${YELLOW}How would you like to proceed?${NC}" >&2
     echo "  [s] skip          — leave your nvim config untouched (recommended)" >&2
-    echo "  [i] side-by-side  — install LazyVim at ~/.config/nvim-cosy" >&2
+    echo "  [i] side-by-side  — install LazyVim at ${CONFIG_DIR}/nvim-cosy" >&2
     echo "                      (your existing config is NOT touched, no backup taken)" >&2
     echo "                      (try it with: NVIM_APPNAME=nvim-cosy nvim)" >&2
     echo "  [r] replace       — move your config to backup, install LazyVim here" >&2
@@ -1511,7 +1755,7 @@ install_neovim() {
         fi
     fi
 
-    local nvim_config="$HOME/.config/nvim"
+    local nvim_config="$CONFIG_DIR/nvim"
 
     # No existing config — simple path, no risk.
     if [[ ! -d "$nvim_config" ]]; then
@@ -1535,7 +1779,7 @@ install_neovim() {
             log "  (re-run with a different choice via 'cosyterm install neovim')"
             ;;
         sidebyside)
-            local cosy_config="$HOME/.config/nvim-cosy"
+            local cosy_config="$CONFIG_DIR/nvim-cosy"
             if [[ -d "$cosy_config" ]]; then
                 log_warn "Side-by-side target $cosy_config already exists. Skipping."
                 return 0
@@ -1587,32 +1831,41 @@ verify_setup() {
     log "Checking that configs only reference tools that are actually installed..."
     local issues=0
 
-    # ── Check: shell config references starship, but starship not installed ──
-    local shell_config=""
+    # ── Check: shell config references starship/eza, but they aren't installed ──
+    # For fish, scan both config.fish and our conf.d/*-cosyterm-* files.
+    local -a shell_configs=()
     if [[ "$SHELL_CHOICE" == "fish" ]]; then
-        shell_config="$HOME/.config/fish/config.fish"
+        [[ -f "$CONFIG_DIR/fish/config.fish" ]] && shell_configs+=("$CONFIG_DIR/fish/config.fish")
+        if [[ -d "$CONFIG_DIR/fish/conf.d" ]]; then
+            local f
+            for f in "$CONFIG_DIR/fish/conf.d"/*-cosyterm-*.fish; do
+                [[ -f "$f" ]] && shell_configs+=("$f")
+            done
+        fi
     elif [[ "$SHELL_CHOICE" == "zsh" ]]; then
-        shell_config="$HOME/.zshrc"
+        [[ -f "$HOME/.zshrc" ]] && shell_configs+=("$HOME/.zshrc")
     fi
 
-    if [[ -n "$shell_config" && -f "$shell_config" ]]; then
-        if grep -q "starship init" "$shell_config" 2>/dev/null && ! has_cmd starship; then
-            log_error "MISMATCH: $shell_config references 'starship' but it's not installed!"
+    if [[ ${#shell_configs[@]} -gt 0 ]]; then
+        if grep -lq "starship init" "${shell_configs[@]}" 2>/dev/null && ! has_cmd starship; then
+            log_error "MISMATCH: a shell config references 'starship' but it's not installed!"
             log "  This will cause an error every time your shell starts."
             log "  Fix: brew install starship"
-            log "  Or remove the starship line from $shell_config"
+            log "  Or remove the starship init line from:"
+            local f
+            for f in "${shell_configs[@]}"; do log "    $f"; done
             ((issues++))
         fi
 
-        if grep -q "eza" "$shell_config" 2>/dev/null && ! has_cmd eza; then
-            log_error "MISMATCH: $shell_config references 'eza' but it's not installed!"
+        if grep -lq "eza" "${shell_configs[@]}" 2>/dev/null && ! has_cmd eza; then
+            log_error "MISMATCH: a shell config references 'eza' but it's not installed!"
             log "  The aliases won't work. Fix: brew install eza"
             ((issues++))
         fi
     fi
 
     # ── Check: Ghostty config references fish, but fish not installed ──
-    local ghostty_config="$HOME/.config/ghostty/config"
+    local ghostty_config="$CONFIG_DIR/ghostty/config"
     if [[ -f "$ghostty_config" ]]; then
         if grep -q "command.*fish" "$ghostty_config" 2>/dev/null && ! has_cmd fish; then
             log_error "MISMATCH: Ghostty config launches Fish but Fish is not installed!"
@@ -1652,10 +1905,10 @@ verify_setup() {
 
     # ── Check: tmux config references Catppuccin but theme not cloned ──
     if [[ -f "$HOME/.tmux.conf" ]]; then
-        if grep -q "catppuccin" "$HOME/.tmux.conf" 2>/dev/null && [[ ! -d "$HOME/.config/tmux/plugins/catppuccin/tmux" ]]; then
+        if grep -q "catppuccin" "$HOME/.tmux.conf" 2>/dev/null && [[ ! -d "$CONFIG_DIR/tmux/plugins/catppuccin/tmux" ]]; then
             log_error "MISMATCH: .tmux.conf references Catppuccin but theme is not installed!"
-            log "  Fix: mkdir -p ~/.config/tmux/plugins/catppuccin"
-            log "       git clone -b v2.3.0 https://github.com/catppuccin/tmux.git ~/.config/tmux/plugins/catppuccin/tmux"
+            log "  Fix: mkdir -p ${CONFIG_DIR}/tmux/plugins/catppuccin"
+            log "       git clone -b v2.3.0 https://github.com/catppuccin/tmux.git ${CONFIG_DIR}/tmux/plugins/catppuccin/tmux"
             ((issues++))
         fi
 
@@ -1667,7 +1920,7 @@ verify_setup() {
     fi
 
     # ── Check: LazyVim config exists but nvim not installed ──
-    if [[ -d "$HOME/.config/nvim" ]] && ! has_cmd nvim; then
+    if [[ -d "$CONFIG_DIR/nvim" ]] && ! has_cmd nvim; then
         log_warn "LazyVim config directory exists but NeoVim is not installed."
         ((issues++))
     fi
@@ -1692,21 +1945,21 @@ print_summary() {
     echo ""
 
     has_cmd ghostty   && echo -e "  ${GREEN}✓${NC} Ghostty terminal emulator"     || echo -e "  ${YELLOW}○${NC} Ghostty (not installed)"
-    [[ -f "$HOME/.config/ghostty/config" ]] \
+    [[ -f "$CONFIG_DIR/ghostty/config" ]] \
                       && echo -e "  ${GREEN}✓${NC} Ghostty config (Catppuccin)"    || echo -e "  ${YELLOW}○${NC} Ghostty config"
     has_cmd fish      && echo -e "  ${GREEN}✓${NC} Fish shell"                     || echo -e "  ${YELLOW}○${NC} Fish shell (not installed)"
     has_cmd zsh       && echo -e "  ${GREEN}✓${NC} Zsh shell"                      || echo -e "  ${YELLOW}○${NC} Zsh shell"
     has_cmd starship  && echo -e "  ${GREEN}✓${NC} Starship prompt"                || echo -e "  ${YELLOW}○${NC} Starship (not installed)"
-    [[ -f "$HOME/.config/starship.toml" ]] \
+    [[ -f "$CONFIG_DIR/starship.toml" ]] \
                       && echo -e "  ${GREEN}✓${NC} Starship config (Catppuccin)"   || echo -e "  ${YELLOW}○${NC} Starship config"
     has_cmd eza       && echo -e "  ${GREEN}✓${NC} eza (ls replacement)"           || echo -e "  ${YELLOW}○${NC} eza (not installed)"
     has_cmd tmux      && echo -e "  ${GREEN}✓${NC} tmux"                             || echo -e "  ${YELLOW}○${NC} tmux (not installed)"
     [[ -f "$HOME/.tmux.conf" ]] \
                       && echo -e "  ${GREEN}✓${NC} tmux config (Catppuccin Mocha)"   || echo -e "  ${YELLOW}○${NC} tmux config"
-    [[ -d "$HOME/.config/tmux/plugins/catppuccin/tmux" ]] \
+    [[ -d "$CONFIG_DIR/tmux/plugins/catppuccin/tmux" ]] \
                       && echo -e "  ${GREEN}✓${NC} Catppuccin tmux theme"            || echo -e "  ${YELLOW}○${NC} Catppuccin tmux theme"
     has_cmd nvim      && echo -e "  ${GREEN}✓${NC} NeoVim"                           || echo -e "  ${YELLOW}○${NC} NeoVim (not installed)"
-    [[ -d "$HOME/.config/nvim" ]] \
+    [[ -d "$CONFIG_DIR/nvim" ]] \
                       && echo -e "  ${GREEN}✓${NC} LazyVim config"                 || echo -e "  ${YELLOW}○${NC} LazyVim"
 
     echo ""

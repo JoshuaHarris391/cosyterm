@@ -68,6 +68,20 @@ Use it to sanity-check a restore — especially when combining `--from` with `--
 
 `restore` reads `manifest.tsv` from the chosen backup dir, stashes your current post-install state into a `pre-restore-<timestamp>/` subdir (so a restore is itself reversible), then moves every backed-up path back where it came from. Backups are plain directories — if the CLI isn't handy, `cp ~/.terminal-setup-backups/<timestamp>/.zshrc ~/.zshrc` works too.
 
+## Where cosyterm writes in fish
+
+Starting with cosyTerm 0.3.0, fish integration lives entirely in `conf.d/` — cosyterm never touches `config.fish` on new installs:
+
+| File | Purpose |
+|---|---|
+| `~/.config/fish/conf.d/00-cosyterm-path.fish` | PATH migration from bash/zsh (`fish_add_path` calls) |
+| `~/.config/fish/conf.d/10-cosyterm-init.fish` | Homebrew `shellenv` + `starship init fish` |
+| `~/.config/fish/conf.d/20-cosyterm-aliases.fish` | `eza` aliases (`ls`, `lsa`, `lt`, `lta`) |
+
+All three honour `$XDG_CONFIG_HOME` — if you've set it, cosyterm writes to `$XDG_CONFIG_HOME/fish/conf.d/` instead.
+
+Fish sources `conf.d/*.fish` alphabetically before `config.fish`, so cosyterm's stuff runs early and you retain full control of `config.fish`.
+
 ## Troubleshooting
 
 ### Fish starts with `Unknown command` errors referencing `.docker/completions` (or similar)
@@ -87,8 +101,62 @@ thread 'main' panicked ... failed printing to stdout: Broken pipe
 
 ```sh
 sed -i.bak '/# PATH migration from Bash\/Zsh — START/,/# PATH migration from Bash\/Zsh — END/d' ~/.config/fish/config.fish
+rm ~/.config/fish/config.fish.bak
+# 0.3.0+ also put a copy in conf.d — remove that too if present:
+rm -f ~/.config/fish/conf.d/00-cosyterm-path.fish
 ```
 
 Then start fish, confirm it sources cleanly, and upgrade cosyTerm (`pip install -U cosyterm`) before re-running setup. If you'd prefer to roll back entirely, `cosyterm restore --latest` reverses the install.
+
+### macOS: "bash >=4 is required" when running `cosyterm`
+
+**Cause.** macOS ships `/bin/bash` 3.2 for GPL-v2 licensing reasons; cosyterm's installer uses bash 4+ features (associative arrays, pattern substitution, etc.) and refuses to run under 3.2 rather than fail cryptically mid-script.
+
+**Fix.** Install a modern bash via Homebrew:
+
+```sh
+brew install bash
+```
+
+You don't need to change your login shell — cosyterm's Python wrapper picks up `/opt/homebrew/bin/bash` automatically.
+
+### PATH migration skipped my `mise` / `asdf` / `rbenv` activation
+
+**Cause.** cosyterm deliberately supports only the most common activation patterns (Homebrew, cargo, pyenv, nvm, conda). Version managers with shell-specific activation (`mise activate fish`, `asdf.fish` plugin, etc.) need their fish-native equivalents — cosyterm would emit bash syntax that fish can't run.
+
+**Fix.** After install, add your version manager's fish integration to `~/.config/fish/conf.d/` yourself. Examples:
+
+```fish
+# ~/.config/fish/conf.d/50-mise.fish
+mise activate fish | source
+```
+
+```fish
+# ~/.config/fish/conf.d/50-asdf.fish
+source ~/.asdf/asdf.fish
+```
+
+### Migrated PATH references `$GOPATH` / `$JAVA_HOME` / another shell var that doesn't exist in fish
+
+**Cause.** Your bash/zsh rc file set `$GOPATH` and then used it in `PATH="$GOPATH/bin:$PATH"`. cosyterm translates the PATH line faithfully, but fish has no knowledge of `$GOPATH` because it never read your zshrc.
+
+**Fix.** Define the variable in `~/.config/fish/conf.d/40-cosyterm-envs.fish` so both the variable and the `fish_add_path` reference work:
+
+```fish
+set -gx GOPATH $HOME/go
+fish_add_path -g "$GOPATH/bin"
+```
+
+Leaving the original `fish_add_path -g "$GOPATH/bin"` in `00-cosyterm-path.fish` is harmless — fish expands the undefined var to empty and skips the add.
+
+### Multi-line PATH assignments weren't migrated
+
+**Cause.** The scan is line-based; PATH assignments that use a backslash continuation (`PATH="\ \n /foo:$PATH"`) are only partially captured.
+
+**Fix.** Open the file cosyterm scanned (`~/.zshrc` and friends), combine the multi-line assignment into a single line, and re-run `cosyterm install shell`. Or add the missing path manually with `fish_add_path -g /your/path`.
+
+### Conditional PATH (`[[ -d ~/.foo/bin ]] && PATH=...`) added even when the directory doesn't exist
+
+**Cause.** cosyterm copies the path without re-evaluating the `[[ -d ... ]]` guard. Fish tolerates non-existent directories in `$PATH` — it's a no-op, not an error — so this is cosmetic. If it bothers you, delete the line from `00-cosyterm-path.fish`.
 
 See also: [Safety model](safety.md) for what's backed up and why.

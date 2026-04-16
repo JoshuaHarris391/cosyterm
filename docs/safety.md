@@ -8,7 +8,7 @@ cosyTerm modifies files in your home directory and, on Linux, runs `sudo` for pa
 - **NeoVim pre-flight** — if you already have a NeoVim config, you're offered `skip` / `side-by-side` (installs to `~/.config/nvim-cosy`, original untouched) / `replace`. The safe route is the default when auto-confirming.
 - **Verification** — after each install, the binary is confirmed on PATH before writing any config that references it.
 - **Mismatch detection** — a final check catches configs pointing to tools that aren't installed.
-- **PATH migration (best-effort)** — PATH entries from Zsh/Bash are translated to `fish_add_path` where possible; review `~/.config/fish/config.fish` after install.
+- **PATH migration (best-effort)** — PATH entries from Zsh/Bash are translated to `fish_add_path` and written to `~/.config/fish/conf.d/00-cosyterm-path.fish` (honours `$XDG_CONFIG_HOME`). Anything that can't be auto-translated (nvm, conda) is logged as a post-install TODO in `~/.terminal-setup-backups/<timestamp>/TODO.md`.
 - **Full log** — everything is recorded in `~/terminal-setup.log`.
 
 ## What commands will run
