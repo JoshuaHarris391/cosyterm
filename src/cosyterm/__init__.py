@@ -17,5 +17,11 @@ Or from Python:
 __version__ = "0.1.0"
 
 from cosyterm.core import setup, doctor, install_step, INSTALL_STEPS
+# Note: restore functionality lives in cosyterm.restore — import that module
+# directly rather than re-exporting, so `cosyterm.restore` unambiguously
+# resolves to the submodule.
 
-__all__ = ["setup", "doctor", "install_step", "INSTALL_STEPS", "__version__"]
+__all__ = [
+    "setup", "doctor", "install_step", "INSTALL_STEPS",
+    "__version__",
+]

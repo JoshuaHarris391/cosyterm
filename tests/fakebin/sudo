@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Fake sudo for cosyterm tests — execs the rest of the command without actual
+# privilege escalation. If called with no command (e.g. `sudo -v`), exits 0.
+[[ -n "${COSYTERM_FAKE_LOG:-}" ]] && printf 'sudo %s\n' "$*" >> "$COSYTERM_FAKE_LOG"
+
+# Strip sudo flags that take no arg.
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -n|-v|-k|-K|-H|-E) shift ;;
+        -u|-g) shift 2 ;;
+        --*) shift ;;
+        *) break ;;
+    esac
+done
+
+if [[ $# -eq 0 ]]; then
+    exit 0
+fi
+exec "$@"

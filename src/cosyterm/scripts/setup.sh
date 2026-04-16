@@ -126,9 +126,20 @@ font_lookup() {
     esac
 }
 LAZYVIM_REPO="https://github.com/LazyVim/starter"
-BACKUP_DIR="$HOME/.terminal-setup-backups/$(date +%Y%m%d_%H%M%S)"
-LOG_FILE="$HOME/terminal-setup.log"
+BACKUP_DIR="${COSYTERM_BACKUP_DIR:-$HOME/.terminal-setup-backups/$(date +%Y%m%d_%H%M%S)}"
+MANIFEST_FILE="$BACKUP_DIR/manifest.tsv"
+LOG_FILE="${COSYTERM_LOG_FILE:-$HOME/terminal-setup.log}"
 SHELL_CHOICE=""  # will be set interactively: "fish" or "zsh"
+
+# Dev-mode / non-interactive overrides (for tests and scripted installs):
+#   COSYTERM_YES=1            auto-confirm every [y/N] prompt
+#   COSYTERM_DEV=1            dev sandbox — still writes to $HOME, but tests
+#                             pre-populate HOME and shim PATH so no real network
+#                             / real sudo is hit. Used by the test harness.
+#   COSYTERM_BACKUP_DIR=...   override the backup dir (useful for tests)
+#   COSYTERM_LOG_FILE=...     override the log file path
+#   COSYTERM_NVIM_CHOICE=...  pre-answer the nvim pre-flight menu:
+#                             skip | sidebyside | replace
 
 # =============================================================================
 # LOGGING & DISPLAY HELPERS
@@ -171,10 +182,16 @@ log_section() {
 
 # Prompt the user for yes/no confirmation.
 # Returns 0 (true) if user says yes, 1 (false) if no.
+# COSYTERM_YES=1 auto-answers yes (for scripted installs and tests).
 # Usage: if confirm "Do the thing?"; then ... fi
 confirm() {
     local prompt="$1"
     local response
+    if [[ "${COSYTERM_YES:-}" == "1" ]]; then
+        echo ""
+        echo -e "${BOLD}${YELLOW}▶ $prompt${NC}  ${GREEN}[auto-yes]${NC}"
+        return 0
+    fi
     echo ""
     echo -e "${BOLD}${YELLOW}▶ $prompt${NC}"
     read -rp "  [y/N]: " response
@@ -184,14 +201,75 @@ confirm() {
     esac
 }
 
-# Back up a file or directory. Skips if source doesn't exist.
+# Prompt the user to type an exact word — used as an extra gate before
+# destructive operations (replacing an existing nvim config, etc.).
+# Returns 0 if user types the expected word exactly, 1 otherwise.
+# Usage: if confirm_typed "This will delete X. Type 'replace' to continue" replace; then ...
+confirm_typed() {
+    local prompt="$1"
+    local expected="$2"
+    local response
+    if [[ "${COSYTERM_YES:-}" == "1" ]]; then
+        echo ""
+        echo -e "${BOLD}${RED}▶ $prompt${NC}  ${GREEN}[auto-yes]${NC}"
+        return 0
+    fi
+    echo ""
+    echo -e "${BOLD}${RED}▶ $prompt${NC}"
+    read -rp "  type '$expected' to confirm: " response
+    [[ "$response" == "$expected" ]]
+}
+
+# Append an entry to the run's manifest.tsv. Each entry records a reversible
+# operation: a move (mv source -> backup) or a copy (cp source -> backup).
+# The restore command reads this file and does the inverse moves.
+# Format (tab-separated):  step<TAB>action<TAB>source<TAB>backup<TAB>timestamp
+manifest_append() {
+    local step="$1"
+    local action="$2"
+    local source="$3"
+    local backup="$4"
+    mkdir -p "$BACKUP_DIR"
+    if [[ ! -f "$MANIFEST_FILE" ]]; then
+        printf "# cosyterm manifest v1\n# step\taction\tsource\tbackup\ttimestamp\n" > "$MANIFEST_FILE"
+    fi
+    local ts
+    ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    printf "%s\t%s\t%s\t%s\t%s\n" "$step" "$action" "$source" "$backup" "$ts" >> "$MANIFEST_FILE"
+}
+
+# Back up a file or directory by COPY. Skips if source doesn't exist.
+# Use this for configs you want to keep in place (e.g. ~/.zshrc appended to).
 backup_if_exists() {
     local src="$1"
+    local step="${2:-unknown}"
     if [[ -e "$src" ]]; then
         mkdir -p "$BACKUP_DIR"
         local dest="$BACKUP_DIR/$(basename "$src")"
         cp -r "$src" "$dest"
+        manifest_append "$step" "copy" "$src" "$dest"
         log_warn "Backed up ${BOLD}$src${NC} → ${BOLD}$dest${NC}"
+    fi
+}
+
+# Back up a file or directory by MOVE. Safer and atomic — the original path
+# is empty after this call, and restore is a single reverse-mv. Use this when
+# the source will be recreated from scratch (e.g. nvim config replaced by
+# LazyVim, where we want the old tree out of the way entirely).
+backup_move() {
+    local src="$1"
+    local step="${2:-unknown}"
+    if [[ -e "$src" ]]; then
+        mkdir -p "$BACKUP_DIR"
+        # Flatten the path into a safe filename so multiple dirs with the
+        # same basename (e.g. .local/share/nvim and .local/state/nvim both
+        # → "nvim") don't collide in the backup dir.
+        local safe_name
+        safe_name=$(echo "${src#$HOME/}" | tr '/' '_')
+        local dest="$BACKUP_DIR/$safe_name"
+        mv "$src" "$dest"
+        manifest_append "$step" "move" "$src" "$dest"
+        log_warn "Moved ${BOLD}$src${NC} → ${BOLD}$dest${NC} (reversible via 'cosyterm restore')"
     fi
 }
 
@@ -1285,6 +1363,97 @@ TMUX_EOF
 # =============================================================================
 # STEP 7/7: NEOVIM + LAZYVIM
 # =============================================================================
+#
+# Safety model:
+#   1. Detect existing nvim config characteristics (lazy-lock.json, git repo,
+#      file count, modified-recency) and surface them before any destructive op.
+#   2. Offer four routes: skip / side-by-side / replace / quit. Default is
+#      'skip' when a substantial non-LazyVim config is present.
+#   3. 'replace' requires the user to type 'replace' — not a single keypress.
+#   4. Backup uses mv (atomic, reversible) not cp+rm. The full nvim trifecta
+#      is preserved: .config/nvim + .local/share/nvim + .local/state/nvim.
+#      Cache is excluded (regenerable).
+#   5. Every move is logged in the run manifest so 'cosyterm restore' can
+#      reverse it exactly.
+#
+# Pre-answer the menu with COSYTERM_NVIM_CHOICE=skip|sidebyside|replace
+# (used by tests and scripted installs).
+
+# Detect and describe the existing nvim config. Prints a short summary line
+# and sets globals for the caller:
+#   NVIM_HAS_LAZYLOCK    — 1 if lazy-lock.json found (looks like LazyVim)
+#   NVIM_IS_GITREPO      — 1 if .config/nvim is a git repo
+#   NVIM_FILE_COUNT      — rough file count under .config/nvim
+nvim_detect_existing() {
+    local nvim_config="$HOME/.config/nvim"
+    NVIM_HAS_LAZYLOCK=0
+    NVIM_IS_GITREPO=0
+    NVIM_FILE_COUNT=0
+
+    [[ -d "$nvim_config" ]] || return 0
+
+    [[ -f "$nvim_config/lazy-lock.json" ]] && NVIM_HAS_LAZYLOCK=1
+    [[ -d "$nvim_config/.git" ]] && NVIM_IS_GITREPO=1
+    NVIM_FILE_COUNT=$(find "$nvim_config" -type f 2>/dev/null | wc -l | tr -d ' ')
+
+    log "Detected existing NeoVim config at $nvim_config:"
+    if (( NVIM_HAS_LAZYLOCK == 1 )); then
+        log "  · $NVIM_FILE_COUNT files · LazyVim (lazy-lock.json present)"
+    else
+        log "  · $NVIM_FILE_COUNT files · NOT LazyVim (no lazy-lock.json)"
+    fi
+    if (( NVIM_IS_GITREPO == 1 )); then
+        log "  · git repo — your own dotfiles, most likely"
+    fi
+    if [[ -d "$HOME/.local/share/nvim" ]]; then
+        local plugin_count
+        plugin_count=$(find "$HOME/.local/share/nvim" -maxdepth 3 -type d 2>/dev/null | wc -l | tr -d ' ')
+        log "  · plugin state: ~/.local/share/nvim ($plugin_count dirs)"
+    fi
+}
+
+# Ask the user which route to take when an existing nvim config is found.
+# Returns via echo: "skip" | "sidebyside" | "replace" | "quit"
+nvim_preflight_choice() {
+    # Environment override for tests / scripted installs.
+    if [[ -n "${COSYTERM_NVIM_CHOICE:-}" ]]; then
+        echo "${COSYTERM_NVIM_CHOICE}"
+        return 0
+    fi
+
+    # When auto-yes is set without an explicit choice, play safe: skip.
+    if [[ "${COSYTERM_YES:-}" == "1" ]]; then
+        echo "skip"
+        return 0
+    fi
+
+    echo ""
+    echo -e "${BOLD}${YELLOW}How would you like to proceed?${NC}"
+    echo "  [s] skip          — leave your nvim config untouched (recommended)"
+    echo "  [i] side-by-side  — install LazyVim at ~/.config/nvim-cosy"
+    echo "                      (try it with: NVIM_APPNAME=nvim-cosy nvim)"
+    echo "  [r] replace       — move your config to backup, install LazyVim here"
+    echo "                      (requires typing 'replace' to confirm)"
+    echo "  [q] quit          — exit without touching anything"
+    echo ""
+    local response
+    read -rp "  choice [s/i/r/q]: " response
+    case "$response" in
+        s|S|skip) echo "skip" ;;
+        i|I|sidebyside|side-by-side) echo "sidebyside" ;;
+        r|R|replace) echo "replace" ;;
+        q|Q|quit) echo "quit" ;;
+        *) echo "skip" ;;
+    esac
+}
+
+# Install LazyVim at $1 (the target config dir). Uses git clone.
+nvim_install_lazyvim() {
+    local target="$1"
+    git clone "$LAZYVIM_REPO" "$target"
+    rm -rf "$target/.git"
+}
+
 install_neovim() {
     log_section "Step 7/7: NeoVim + LazyVim"
 
@@ -1308,39 +1477,71 @@ install_neovim() {
         fi
     fi
 
-    # LazyVim setup
     local nvim_config="$HOME/.config/nvim"
 
-    if [[ -d "$nvim_config" ]]; then
-        log_warn "Existing NeoVim config found at $nvim_config"
-
-        if confirm "Back up existing NeoVim config and install LazyVim? (Your old config will be saved)"; then
-            backup_if_exists "$nvim_config"
-            backup_if_exists "$HOME/.local/share/nvim"
-            backup_if_exists "$HOME/.local/state/nvim"
-            backup_if_exists "$HOME/.cache/nvim"
-
-            rm -rf "$nvim_config"
-            rm -rf "$HOME/.local/share/nvim"
-            rm -rf "$HOME/.local/state/nvim"
-            rm -rf "$HOME/.cache/nvim"
-
-            git clone "$LAZYVIM_REPO" "$nvim_config"
-            # Remove the .git folder so it's not a submodule
-            rm -rf "$nvim_config/.git"
-            log_success "LazyVim installed. Run 'nvim' to complete plugin installation."
-        else
-            log_warn "Kept existing NeoVim config. Skipping LazyVim."
-        fi
-    else
+    # No existing config — simple path, no risk.
+    if [[ ! -d "$nvim_config" ]]; then
         if confirm "Install LazyVim (pre-configured NeoVim setup)?"; then
-            git clone "$LAZYVIM_REPO" "$nvim_config"
-            rm -rf "$nvim_config/.git"
+            nvim_install_lazyvim "$nvim_config"
             log_success "LazyVim installed. Run 'nvim' to complete plugin installation."
         else
             log_warn "Skipped LazyVim."
         fi
+        return 0
     fi
+
+    # Existing config — pre-flight, route the user.
+    nvim_detect_existing
+    local choice
+    choice=$(nvim_preflight_choice)
+
+    case "$choice" in
+        skip)
+            log_warn "Kept existing NeoVim config. Skipping LazyVim."
+            log "  (re-run with a different choice via 'cosyterm install neovim')"
+            ;;
+        sidebyside)
+            local cosy_config="$HOME/.config/nvim-cosy"
+            if [[ -d "$cosy_config" ]]; then
+                log_warn "Side-by-side target $cosy_config already exists. Skipping."
+                return 0
+            fi
+            nvim_install_lazyvim "$cosy_config"
+            log_success "LazyVim installed side-by-side at $cosy_config"
+            log "Your existing $nvim_config is untouched."
+            log "Try the new setup with:  ${BOLD}NVIM_APPNAME=nvim-cosy nvim${NC}"
+            log "If you like it, move it into place yourself."
+            ;;
+        replace)
+            log_warn "Replace mode will move these paths to the backup:"
+            log "  · $nvim_config"
+            log "  · $HOME/.local/share/nvim"
+            log "  · $HOME/.local/state/nvim"
+            log "and delete (regenerable cache):"
+            log "  · $HOME/.cache/nvim"
+            if ! confirm_typed "This replaces your NeoVim setup. Type 'replace' to continue." replace; then
+                log_warn "Confirmation declined. No changes made."
+                return 0
+            fi
+            # Atomic moves into the backup dir. Each recorded in the manifest.
+            backup_move "$nvim_config" "neovim"
+            backup_move "$HOME/.local/share/nvim" "neovim"
+            backup_move "$HOME/.local/state/nvim" "neovim"
+            # Cache is regenerable — delete without backup.
+            rm -rf "$HOME/.cache/nvim"
+            nvim_install_lazyvim "$nvim_config"
+            log_success "LazyVim installed. Previous config is in ${BOLD}$BACKUP_DIR${NC}"
+            log "To restore: ${BOLD}cosyterm restore --latest --only neovim${NC}"
+            ;;
+        quit)
+            log_warn "Exiting NeoVim step without changes."
+            return 0
+            ;;
+        *)
+            log_error "Unknown choice '$choice'. No changes made."
+            return 1
+            ;;
+    esac
 }
 
 # =============================================================================

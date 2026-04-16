@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Fake curl for cosyterm tests. When -o <path> or -fsSL > <path> is used,
+# creates a small placeholder file so follow-up file tests in setup.sh succeed.
+# Logs the call.
+[[ -n "${COSYTERM_FAKE_LOG:-}" ]] && printf 'curl %s\n' "$*" >> "$COSYTERM_FAKE_LOG"
+
+output_path=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -o|--output) output_path="$2"; shift 2 ;;
+        *) shift ;;
+    esac
+done
+
+if [[ -n "$output_path" ]]; then
+    mkdir -p "$(dirname "$output_path")"
+    printf '# fake curl output\n' > "$output_path"
+fi
+exit 0

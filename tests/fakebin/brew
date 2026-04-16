@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Fake Homebrew for cosyterm tests. Records calls, always succeeds.
+[[ -n "${COSYTERM_FAKE_LOG:-}" ]] && printf 'brew %s\n' "$*" >> "$COSYTERM_FAKE_LOG"
+exit 0

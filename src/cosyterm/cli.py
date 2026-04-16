@@ -12,6 +12,7 @@ import argparse
 
 from cosyterm import __version__
 from cosyterm.core import setup, doctor, install_step, INSTALL_STEPS
+import cosyterm.restore as restore_mod
 
 
 BANNER = r"""
@@ -59,6 +60,35 @@ def main():
         help="Step to install (e.g. font, ghostty, starship)",
     )
 
+    restore_parser = subparsers.add_parser(
+        "restore",
+        help="Undo a previous install by restoring from a backup",
+    )
+    restore_parser.add_argument(
+        "--list", action="store_true",
+        help="List available backups",
+    )
+    restore_parser.add_argument(
+        "--latest", action="store_true",
+        help="Restore from the most recent backup",
+    )
+    restore_parser.add_argument(
+        "--from", dest="from_ts", metavar="TIMESTAMP",
+        help="Restore from the backup with this timestamp (e.g. 20260416_140523)",
+    )
+    restore_parser.add_argument(
+        "--only", metavar="STEP",
+        help="Only restore entries for this step (e.g. neovim)",
+    )
+    restore_parser.add_argument(
+        "--verify", action="store_true",
+        help="Verify a backup's integrity without restoring",
+    )
+    restore_parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Print what would happen without touching anything",
+    )
+
     args = parser.parse_args()
 
     # Print the banner
@@ -71,6 +101,23 @@ def main():
         sys.exit(1 if issues > 0 else 0)
     elif args.command == "install":
         sys.exit(install_step(args.step))
+    elif args.command == "restore":
+        if args.list:
+            sys.exit(restore_mod.print_list())
+        if args.verify:
+            sys.exit(restore_mod.verify(latest=args.latest, timestamp=args.from_ts))
+        if not args.latest and not args.from_ts:
+            print(
+                "cosyterm restore: specify --latest, --from <timestamp>, or --list",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        sys.exit(restore_mod.restore(
+            latest=args.latest,
+            timestamp=args.from_ts,
+            only=args.only,
+            dry_run=args.dry_run,
+        ))
     else:
         # Default action: run setup
         sys.exit(setup())
