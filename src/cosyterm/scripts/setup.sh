@@ -1427,15 +1427,18 @@ nvim_preflight_choice() {
         return 0
     fi
 
-    echo ""
-    echo -e "${BOLD}${YELLOW}How would you like to proceed?${NC}"
-    echo "  [s] skip          — leave your nvim config untouched (recommended)"
-    echo "  [i] side-by-side  — install LazyVim at ~/.config/nvim-cosy"
-    echo "                      (try it with: NVIM_APPNAME=nvim-cosy nvim)"
-    echo "  [r] replace       — move your config to backup, install LazyVim here"
-    echo "                      (requires typing 'replace' to confirm)"
-    echo "  [q] quit          — exit without touching anything"
-    echo ""
+    # Menu goes to stderr so it stays visible when this function is called
+    # via command substitution (choice=$(nvim_preflight_choice) at the caller).
+    echo "" >&2
+    echo -e "${BOLD}${YELLOW}How would you like to proceed?${NC}" >&2
+    echo "  [s] skip          — leave your nvim config untouched (recommended)" >&2
+    echo "  [i] side-by-side  — install LazyVim at ~/.config/nvim-cosy" >&2
+    echo "                      (your existing config is NOT touched, no backup taken)" >&2
+    echo "                      (try it with: NVIM_APPNAME=nvim-cosy nvim)" >&2
+    echo "  [r] replace       — move your config to backup, install LazyVim here" >&2
+    echo "                      (requires typing 'replace' to confirm)" >&2
+    echo "  [q] quit          — exit without touching anything" >&2
+    echo "" >&2
     local response
     read -rp "  choice [s/i/r/q]: " response
     case "$response" in
