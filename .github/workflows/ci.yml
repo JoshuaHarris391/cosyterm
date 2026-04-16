@@ -41,6 +41,9 @@ jobs:
           scandir: './src/cosyterm/scripts'
           severity: warning
 
+      - name: Lint Python (ruff)
+        run: poetry run ruff check src/ tests/
+
       - name: Run tests
         run: poetry run pytest tests/ -v
 

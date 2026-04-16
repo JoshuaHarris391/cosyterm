@@ -55,3 +55,14 @@ include = [{ path = "src/cosyterm/scripts/*.sh", format = ["sdist", "wheel"] }]
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0"
+ruff = ">=0.6,<1.0"
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+# E501: we embed long URLs and copy-paste commands in user-facing print
+# strings and docstring examples where wrapping hurts readability.
+ignore = ["E501"]

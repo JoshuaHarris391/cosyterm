@@ -19,7 +19,6 @@ from typing import Callable
 
 import pytest
 
-
 TESTS_DIR = Path(__file__).parent
 FAKEBIN_DIR = TESTS_DIR / "fakebin"
 FIXTURES_DIR = TESTS_DIR / "fixtures"
