@@ -979,6 +979,10 @@ _migrate_path_to_fish() {
     # later matches as duplicates. Unit-separator bracketing (\x1f can't
     # appear in real shell input) makes membership tests a plain substring.
     local seen_translations=""
+    # Per-tool TODO dedup — multi-line installer snippets (conda's 6-line
+    # init block, SDKMAN, rbenv, etc.) would otherwise emit one TODO per
+    # matched line. One TODO per tool is the useful signal.
+    local seen_todo_tools=""
 
     for line in "${path_lines[@]}"; do
         local translated=""
@@ -1002,13 +1006,21 @@ _migrate_path_to_fish() {
 
         # ── nvm: fish needs the nvm.fish plugin; don't emit anything ──
         elif [[ "$line" =~ NVM_DIR ]] || [[ "$line" =~ nvm\.sh ]]; then
-            todo_lines+=("nvm detected: install the nvm.fish plugin (https://github.com/jorgebucaran/nvm.fish). Source line: $line")
+            if [[ "$seen_todo_tools" != *$'\x1f'"nvm"$'\x1f'* ]]; then
+                seen_todo_tools+=$'\x1f'"nvm"$'\x1f'
+                todo_lines+=("nvm detected: install the nvm.fish plugin (https://github.com/jorgebucaran/nvm.fish). First source line: $line")
+            fi
             skipped=$((skipped+1))
             continue
 
         # ── conda: surface as a post-install step ──
+        # Miniconda's init block spans 6+ lines, all containing "conda";
+        # dedupe by tool so the user sees one TODO, not six.
         elif [[ "$line" =~ conda ]]; then
-            todo_lines+=("conda detected: run 'conda init fish' to set up conda for fish. Source line: $line")
+            if [[ "$seen_todo_tools" != *$'\x1f'"conda"$'\x1f'* ]]; then
+                seen_todo_tools+=$'\x1f'"conda"$'\x1f'
+                todo_lines+=("conda detected: run 'conda init fish' to set up conda for fish. First source line: $line")
+            fi
             skipped=$((skipped+1))
             continue
 
