@@ -166,6 +166,7 @@ def restore(
 
     print(f"Restoring from: {backup_dir}")
     print(f"Entries: {len(entries)}" + (f"  (filtered to step '{only}')" if only else ""))
+    print("Each entry does two things: saves your current state aside, then moves the backup back.")
     print()
 
     if dry_run:
@@ -183,14 +184,14 @@ def restore(
 
         stashed = _stash_current(e.source, stash)
         if stashed:
-            print(f"  [stash] {e.source} → {stashed}")
+            print(f"  [save-current]  {e.source}  →  {stashed}")
 
         # For both 'move' and 'copy' actions, the reverse is the same: put
         # the backup tree back where the source was. Using move is safe now
         # because we've stashed any current content out of the way.
         e.source.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(e.backup), str(e.source))
-        print(f"  [restore] {e.source}  ({e.action})")
+        print(f"  [restore]       {e.backup}  →  {e.source}  ({e.action})")
 
     marker = backup_dir / ".restored"
     marker.write_text(datetime.now(timezone.utc).isoformat() + "\n")
