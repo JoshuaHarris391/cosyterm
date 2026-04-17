@@ -142,7 +142,8 @@ LOG_FILE="${COSYTERM_LOG_FILE:-$HOME/terminal-setup.log}"
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}"
 SHELL_CHOICE=""  # will be set interactively: "fish" or "zsh"
 
-# Dev-mode / non-interactive overrides (for tests and scripted installs):
+# Dev-mode / non-interactive overrides (for tests, scripted installs, and
+# the Python wizard in src/cosyterm/wizard.py):
 #   COSYTERM_YES=1            auto-confirm every [y/N] prompt
 #   COSYTERM_DEV=1            dev sandbox — still writes to $HOME, but tests
 #                             pre-populate HOME and shim PATH so no real network
@@ -151,6 +152,22 @@ SHELL_CHOICE=""  # will be set interactively: "fish" or "zsh"
 #   COSYTERM_LOG_FILE=...     override the log file path
 #   COSYTERM_NVIM_CHOICE=...  pre-answer the nvim pre-flight menu:
 #                             skip | sidebyside | replace
+#
+# Wizard-driven choice overrides (set by src/cosyterm/wizard.py to skip the
+# interactive read -rp menus; can also be set by hand for scripted installs):
+#   COSYTERM_STEPS=...        CSV subset of: font,ghostty,shell,starship,eza,
+#                             tmux,neovim  (default: all)
+#   COSYTERM_FONT_CHOICE=...  font key (JetBrainsMono, 0xProto, …) or "skip"
+#   COSYTERM_SHELL_CHOICE=... fish | zsh | skip
+#   COSYTERM_FISH_METHOD=...  chsh | ghostty | none
+#
+# Plan / dry-run mode:
+#   COSYTERM_PLAN=1           print the literal commands that WOULD run
+#                             (CMD / WRITE / SECTION / NOTE tab-delimited lines
+#                             on stdout) and execute nothing. The wizard spawns
+#                             setup.sh with this flag to populate its review
+#                             screen, then spawns it again without the flag
+#                             (plus COSYTERM_YES=1) to actually run.
 
 # =============================================================================
 # LOGGING & DISPLAY HELPERS
@@ -164,6 +181,12 @@ BOLD='\033[1m'
 NC='\033[0m' # No Color
 
 log() {
+    # Plan mode keeps stdout machine-parseable (only CMD/WRITE/SECTION/NOTE
+    # lines). Log output is suppressed entirely — nothing is actually running,
+    # so there's nothing to log to the file either.
+    if [[ "${COSYTERM_PLAN:-}" == "1" ]]; then
+        return 0
+    fi
     local timestamp
     timestamp=$(date '+%Y-%m-%d %H:%M:%S')
     echo -e "${CYAN}[$timestamp]${NC} $1"
@@ -179,10 +202,21 @@ log_warn() {
 }
 
 log_error() {
+    # Errors surface even in plan mode — a typo in COSYTERM_FONT_CHOICE or a
+    # missing tool is something the user needs to see before we run anything
+    # for real. Stripped of ANSI so it's readable in the wizard's error view.
+    if [[ "${COSYTERM_PLAN:-}" == "1" ]]; then
+        printf 'ERROR\t%s\n' "$(echo "$1" | sed 's/\x1b\[[0-9;]*m//g')" >&2
+        return 0
+    fi
     log "${RED}✗${NC} $1"
 }
 
 log_section() {
+    if [[ "${COSYTERM_PLAN:-}" == "1" ]]; then
+        printf 'SECTION\t%s\n' "$1"
+        return 0
+    fi
     echo ""
     echo -e "${BOLD}${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo -e "${BOLD}${BLUE}  $1${NC}"
@@ -198,6 +232,11 @@ log_section() {
 confirm() {
     local prompt="$1"
     local response
+    # In plan mode the wizard already got the user's consent on the review
+    # screen — confirms are auto-yes and silent so stdout stays parseable.
+    if [[ "${COSYTERM_PLAN:-}" == "1" ]]; then
+        return 0
+    fi
     if [[ "${COSYTERM_YES:-}" == "1" ]]; then
         echo ""
         echo -e "${BOLD}${YELLOW}▶ $prompt${NC}  ${GREEN}[auto-yes]${NC}"
@@ -220,6 +259,9 @@ confirm_typed() {
     local prompt="$1"
     local expected="$2"
     local response
+    if [[ "${COSYTERM_PLAN:-}" == "1" ]]; then
+        return 0
+    fi
     if [[ "${COSYTERM_YES:-}" == "1" ]]; then
         echo ""
         echo -e "${BOLD}${RED}▶ $prompt${NC}  ${GREEN}[auto-yes]${NC}"
@@ -231,6 +273,63 @@ confirm_typed() {
     [[ "$response" == "$expected" ]]
 }
 
+# =============================================================================
+# PLAN MODE WRAPPERS
+# When COSYTERM_PLAN=1 is set, external commands and file writes are printed
+# (as tab-delimited `CMD\t…` / `WRITE\t…` / `SECTION\t…` / `NOTE\t…` lines)
+# instead of being executed. The Python wizard spawns setup.sh in plan mode
+# to enumerate the literal commands for the review screen, then spawns it
+# again without the flag to actually run them.
+# =============================================================================
+
+# True when the script is running in dry-run plan mode.
+is_plan_mode() {
+    [[ "${COSYTERM_PLAN:-}" == "1" ]]
+}
+
+# Run an external command, or in plan mode print its literal form.
+# Usage: run brew install --cask ghostty
+run() {
+    if is_plan_mode; then
+        local q=""
+        local a
+        for a in "$@"; do q+=" $(printf '%q' "$a")"; done
+        printf 'CMD\t%s\n' "${q# }"
+        return 0
+    fi
+    "$@"
+}
+
+# Run a shell snippet (for pipes, redirection, heredocs). In plan mode the
+# snippet is rendered as `sh -c '<escaped>'` so it's unambiguous.
+# Usage: run_sh 'echo /opt/homebrew/bin/fish | sudo tee -a /etc/shells > /dev/null'
+run_sh() {
+    if is_plan_mode; then
+        printf 'CMD\tsh -c %s\n' "$(printf '%q' "$1")"
+        return 0
+    fi
+    bash -c "$1"
+}
+
+# Announce an upcoming file write. In plan mode this is the only record; in
+# real mode the caller still performs the actual write (heredoc / echo >>).
+# Callers should guard heredoc blocks with `if is_plan_mode; then …; else …`.
+note_write() {
+    local path="$1"
+    local hint="${2:-config}"
+    if is_plan_mode; then
+        printf 'WRITE\t%s\t%s\n' "$path" "$hint"
+    fi
+}
+
+# Freeform plan-mode note, e.g. "skipped — already installed". Never shown
+# in real mode. log_section already handles SECTION markers automatically.
+plan_note() {
+    if is_plan_mode; then
+        printf 'NOTE\t%s\n' "$1"
+    fi
+}
+
 # Append an entry to the run's manifest.tsv. Each entry records a reversible
 # operation: a move (mv source -> backup) or a copy (cp source -> backup).
 # The restore command reads this file and does the inverse moves.
@@ -240,6 +339,12 @@ manifest_append() {
     local action="$2"
     local source="$3"
     local backup="$4"
+    # Plan mode never touches the manifest — no real operations, nothing to
+    # record. Callers in plan mode still emit NOTE/CMD lines so the user sees
+    # what would be backed up.
+    if is_plan_mode; then
+        return 0
+    fi
     mkdir -p "$BACKUP_DIR"
     if [[ ! -f "$MANIFEST_FILE" ]]; then
         printf "# cosyterm manifest v1\n# step\taction\tsource\tbackup\ttimestamp\n" > "$MANIFEST_FILE"
@@ -255,9 +360,16 @@ backup_if_exists() {
     local src="$1"
     local step="${2:-unknown}"
     if [[ -e "$src" ]]; then
-        mkdir -p "$BACKUP_DIR"
         local dest
         dest="$BACKUP_DIR/$(basename "$src")"
+        if is_plan_mode; then
+            # Can't know for sure the path exists at plan time (e.g. in a
+            # sandbox), but if we got here the caller already thinks it does.
+            run cp -r "$src" "$dest"
+            plan_note "back up $src → $dest (copy)"
+            return 0
+        fi
+        mkdir -p "$BACKUP_DIR"
         cp -r "$src" "$dest"
         manifest_append "$step" "copy" "$src" "$dest"
         log_warn "Backed up ${BOLD}$src${NC} → ${BOLD}$dest${NC}"
@@ -272,13 +384,18 @@ backup_move() {
     local src="$1"
     local step="${2:-unknown}"
     if [[ -e "$src" ]]; then
-        mkdir -p "$BACKUP_DIR"
         # Flatten the path into a safe filename so multiple dirs with the
         # same basename (e.g. .local/share/nvim and .local/state/nvim both
         # → "nvim") don't collide in the backup dir.
         local safe_name
         safe_name=$(echo "${src#"$HOME"/}" | tr '/' '_')
         local dest="$BACKUP_DIR/$safe_name"
+        if is_plan_mode; then
+            run mv "$src" "$dest"
+            plan_note "back up $src → $dest (move, reversible)"
+            return 0
+        fi
+        mkdir -p "$BACKUP_DIR"
         mv "$src" "$dest"
         manifest_append "$step" "move" "$src" "$dest"
         log_warn "Moved ${BOLD}$src${NC} → ${BOLD}$dest${NC} (reversible via 'cosyterm restore')"
@@ -323,16 +440,16 @@ pkg_install() {
 
     case "$PKG_MANAGER" in
         brew)
-            brew install "$brew_pkg"
+            run brew install "$brew_pkg"
             ;;
         apt)
-            sudo apt-get install -y "$pkg"
+            run sudo apt-get install -y "$pkg"
             ;;
         dnf)
-            sudo dnf install -y "$pkg"
+            run sudo dnf install -y "$pkg"
             ;;
         pacman)
-            sudo pacman -S --noconfirm "$pkg"
+            run sudo pacman -S --noconfirm "$pkg"
             ;;
         *)
             log_error "Unsupported package manager. Please install ${BOLD}$pkg${NC} manually."
@@ -378,7 +495,7 @@ preflight() {
     if ! has_cmd curl; then
         if [[ "$OS" == "linux" ]] && [[ "$PKG_MANAGER" == "apt" ]]; then
             log_warn "curl not found — attempting 'sudo apt-get install curl' so Starship/theme downloads work."
-            if ! sudo apt-get install -y curl 2>>"$LOG_FILE"; then
+            if ! run sudo apt-get install -y curl; then
                 log_error "Failed to install curl via apt. Install it manually: sudo apt-get install curl"
                 exit 1
             fi
@@ -408,58 +525,84 @@ install_nerd_font() {
     log "for Starship prompt icons and eza file icons to render properly."
     echo ""
 
-    # ── Font selection menu ──
-    echo -e "${BOLD}${YELLOW}▶ Which Nerd Font would you like to install?${NC}"
-    echo ""
-    local i=1
+    local chosen=""
 
-    echo -e "  ${BOLD}${CYAN}Fun fonts${NC}"
-    for key in "${FUN_FONTS[@]}"; do
-        echo -e "  ${BOLD}$i)${NC} $(font_lookup "$key" display)"
-        i=$((i+1))
-    done
-
-    echo ""
-    echo -e "  ${BOLD}${CYAN}Developer fonts${NC}"
-    for key in "${DEFAULT_FONTS[@]}"; do
-        echo -e "  ${BOLD}$i)${NC} $(font_lookup "$key" display)"
-        i=$((i+1))
-    done
-
-    echo ""
-    echo -e "  ${BOLD}$i)${NC} Skip — I'll install a Nerd Font myself"
-    echo ""
-    read -rp "  Choice [1-$i]: " font_choice
-
-    # Validate choice
-    if [[ "$font_choice" =~ ^[0-9]+$ ]] && (( font_choice >= 1 && font_choice <= ${#FONT_OPTIONS[@]} )); then
-        local idx=$((font_choice - 1))
-        local chosen="${FONT_OPTIONS[$idx]}"
-
-        FONT_NAME="$chosen"
-        FONT_URL="https://github.com/ryanoasis/nerd-fonts/releases/latest/download/${chosen}.zip"
-        FONT_BREW_CASK="$(font_lookup "$chosen" cask)"
-        FONT_FAMILY="$(font_lookup "$chosen" family)"
-        FONT_FILE_GLOB="$(font_lookup "$chosen" glob)"
-
-        local display_name
-        display_name="$(font_lookup "$chosen" display)"
-        log "Selected: ${BOLD}${display_name%%  —*}${NC}"
+    # Wizard / automation path: COSYTERM_FONT_CHOICE is a font key like
+    # "0xProto" or "JetBrainsMono", or "skip" to opt out. Any other value is
+    # treated as an error so typos don't silently skip the install.
+    if [[ -n "${COSYTERM_FONT_CHOICE:-}" ]]; then
+        if [[ "${COSYTERM_FONT_CHOICE}" == "skip" ]]; then
+            FONT_NAME=""
+            log_warn "COSYTERM_FONT_CHOICE=skip — skipping font installation."
+            return 0
+        fi
+        local valid_key=false
+        for key in "${FONT_OPTIONS[@]}"; do
+            if [[ "$key" == "${COSYTERM_FONT_CHOICE}" ]]; then
+                valid_key=true
+                break
+            fi
+        done
+        if [[ "$valid_key" != "true" ]]; then
+            log_error "Unknown COSYTERM_FONT_CHOICE '${COSYTERM_FONT_CHOICE}'."
+            log_error "  Valid keys: ${FONT_OPTIONS[*]} skip"
+            return 1
+        fi
+        chosen="${COSYTERM_FONT_CHOICE}"
     else
-        FONT_NAME=""
-        log_warn "Skipped font installation. Icons may not render correctly without a Nerd Font."
-        return 0
+        # ── Classic interactive menu ──
+        echo -e "${BOLD}${YELLOW}▶ Which Nerd Font would you like to install?${NC}"
+        echo ""
+        local i=1
+
+        echo -e "  ${BOLD}${CYAN}Fun fonts${NC}"
+        for key in "${FUN_FONTS[@]}"; do
+            echo -e "  ${BOLD}$i)${NC} $(font_lookup "$key" display)"
+            i=$((i+1))
+        done
+
+        echo ""
+        echo -e "  ${BOLD}${CYAN}Developer fonts${NC}"
+        for key in "${DEFAULT_FONTS[@]}"; do
+            echo -e "  ${BOLD}$i)${NC} $(font_lookup "$key" display)"
+            i=$((i+1))
+        done
+
+        echo ""
+        echo -e "  ${BOLD}$i)${NC} Skip — I'll install a Nerd Font myself"
+        echo ""
+        local font_choice
+        read -rp "  Choice [1-$i]: " font_choice
+
+        if [[ "$font_choice" =~ ^[0-9]+$ ]] && (( font_choice >= 1 && font_choice <= ${#FONT_OPTIONS[@]} )); then
+            local idx=$((font_choice - 1))
+            chosen="${FONT_OPTIONS[$idx]}"
+        else
+            FONT_NAME=""
+            log_warn "Skipped font installation. Icons may not render correctly without a Nerd Font."
+            return 0
+        fi
     fi
+
+    FONT_NAME="$chosen"
+    FONT_URL="https://github.com/ryanoasis/nerd-fonts/releases/latest/download/${chosen}.zip"
+    FONT_BREW_CASK="$(font_lookup "$chosen" cask)"
+    FONT_FAMILY="$(font_lookup "$chosen" family)"
+    FONT_FILE_GLOB="$(font_lookup "$chosen" glob)"
+
+    local display_name
+    display_name="$(font_lookup "$chosen" display)"
+    log "Selected: ${BOLD}${display_name%%  —*}${NC}"
 
     # ── macOS install via Homebrew cask ──
     local font_installed=false
     if [[ "$OS" == "macos" ]]; then
-        if brew list --cask "$FONT_BREW_CASK" &>/dev/null 2>&1; then
+        if ! is_plan_mode && brew list --cask "$FONT_BREW_CASK" &>/dev/null 2>&1; then
             log_success "$FONT_NAME Nerd Font is already installed via Homebrew"
             font_installed=true
         elif confirm "Install $FONT_NAME Nerd Font via Homebrew cask?"; then
             log "Installing $FONT_NAME Nerd Font..."
-            brew install --cask "$FONT_BREW_CASK"
+            run brew install --cask "$FONT_BREW_CASK"
             log_success "Font installed"
             font_installed=true
         else
@@ -470,23 +613,29 @@ install_nerd_font() {
     else
         local font_dir="$HOME/.local/share/fonts"
         # shellcheck disable=SC2086  # FONT_FILE_GLOB is intentionally unquoted so the glob expands.
-        if ls "$font_dir"/$FONT_FILE_GLOB &>/dev/null 2>&1; then
+        if ! is_plan_mode && ls "$font_dir"/$FONT_FILE_GLOB &>/dev/null 2>&1; then
             log_success "$FONT_NAME Nerd Font is already installed in $font_dir"
             font_installed=true
         elif confirm "Download and install $FONT_NAME Nerd Font to $font_dir?"; then
             local tmp_dir
-            tmp_dir=$(mktemp -d)
+            if is_plan_mode; then
+                tmp_dir="/tmp/cosyterm-font.XXXXXX"
+            else
+                tmp_dir=$(mktemp -d)
+            fi
             log "Downloading $FONT_NAME Nerd Font..."
 
-            if curl -fsSL "$FONT_URL" -o "$tmp_dir/font.zip"; then
-                mkdir -p "$font_dir"
-                unzip -qo "$tmp_dir/font.zip" -d "$font_dir"
-                rm -rf "$tmp_dir"
+            if run curl -fsSL "$FONT_URL" -o "$tmp_dir/font.zip"; then
+                run mkdir -p "$font_dir"
+                run unzip -qo "$tmp_dir/font.zip" -d "$font_dir"
+                run rm -rf "$tmp_dir"
 
                 # Rebuild font cache. Without fc-cache, fontconfig doesn't
                 # pick up the new files and Ghostty silently falls back to
                 # its default — users then see boxes instead of icons.
-                if has_cmd fc-cache; then
+                if is_plan_mode; then
+                    run fc-cache -f "$font_dir"
+                elif has_cmd fc-cache; then
                     fc-cache -f "$font_dir" >> "$LOG_FILE" 2>&1
                 else
                     log_warn "fc-cache not found — font won't register until fontconfig is installed."
@@ -497,7 +646,7 @@ install_nerd_font() {
                 font_installed=true
             else
                 log_error "Failed to download font. Check your internet connection."
-                rm -rf "$tmp_dir"
+                run rm -rf "$tmp_dir"
             fi
         else
             log_warn "Skipped font installation."
@@ -507,7 +656,12 @@ install_nerd_font() {
     # Update Ghostty config if it exists
     if $font_installed && [[ -n "$FONT_FAMILY" ]]; then
         local ghostty_config="$CONFIG_DIR/ghostty/config"
-        if [[ -f "$ghostty_config" ]]; then
+        if is_plan_mode; then
+            # Plan mode can't inspect a config that doesn't exist yet — skip
+            # the conditional and note the possibility. install_ghostty's plan
+            # output already shows the full file being written.
+            plan_note "if ~/.config/ghostty/config already exists, font-family line will be rewritten to $FONT_FAMILY"
+        elif [[ -f "$ghostty_config" ]]; then
             if grep -q "^font-family" "$ghostty_config"; then
                 backup_if_exists "$ghostty_config"
                 sed -i.bak "s/^font-family = .*/font-family = ${FONT_FAMILY}/" "$ghostty_config"
@@ -527,23 +681,23 @@ install_ghostty() {
     log "Ghostty is a GPU-accelerated terminal emulator by Mitchell Hashimoto."
     log "It's fast, cross-platform, and has a simple config file."
 
-    if has_cmd ghostty; then
+    if ! is_plan_mode && has_cmd ghostty; then
         log_success "Ghostty is already installed"
     else
         if confirm "Install Ghostty? (If unavailable via package manager, you may need to build from source or download from ghostty.org)"; then
             local installed=false
 
             if [[ "$OS" == "macos" ]]; then
-                if brew install --cask ghostty 2>>"$LOG_FILE"; then
+                if run brew install --cask ghostty; then
                     installed=true
                 fi
             elif [[ "$PKG_MANAGER" == "apt" ]]; then
                 # Ghostty may not be in default repos — try, but don't fail hard
-                if sudo apt-get install -y ghostty 2>>"$LOG_FILE"; then
+                if run sudo apt-get install -y ghostty; then
                     installed=true
                 fi
             elif [[ "$PKG_MANAGER" == "pacman" ]]; then
-                if sudo pacman -S --noconfirm ghostty 2>>"$LOG_FILE"; then
+                if run sudo pacman -S --noconfirm ghostty; then
                     installed=true
                 fi
             fi
@@ -568,12 +722,12 @@ install_ghostty() {
     if confirm "Write Ghostty config with Catppuccin Mocha theme and your chosen font?"; then
         backup_if_exists "$ghostty_config"
 
-        mkdir -p "$ghostty_config_dir"
-        mkdir -p "$ghostty_themes_dir"
+        run mkdir -p "$ghostty_config_dir"
+        run mkdir -p "$ghostty_themes_dir"
 
         # Download Catppuccin Mocha theme
         log "Downloading Catppuccin Mocha theme for Ghostty..."
-        if curl -fsSL "$CATPPUCCIN_MOCHA_URL" -o "$ghostty_themes_dir/catppuccin-mocha.conf" 2>>"$LOG_FILE"; then
+        if run curl -fsSL "$CATPPUCCIN_MOCHA_URL" -o "$ghostty_themes_dir/catppuccin-mocha.conf"; then
             log_success "Theme downloaded"
         else
             log_warn "Could not download theme. You can add it manually later."
@@ -582,7 +736,10 @@ install_ghostty() {
         # Determine font family for Ghostty config
         local ghostty_font="${FONT_FAMILY:-JetBrainsMono Nerd Font Mono}"
 
-        cat > "$ghostty_config" << GHOSTTY_EOF
+        if is_plan_mode; then
+            note_write "$ghostty_config" "ghostty config (Catppuccin Mocha + $ghostty_font)"
+        else
+            cat > "$ghostty_config" << GHOSTTY_EOF
 # Ghostty configuration
 # Docs: https://ghostty.org/docs/config
 
@@ -596,8 +753,8 @@ window-padding-x = 12
 window-padding-y = 12
 window-padding-balance = true
 GHOSTTY_EOF
-
-        log_success "Ghostty config written to $ghostty_config"
+            log_success "Ghostty config written to $ghostty_config"
+        fi
     fi
 }
 
@@ -614,33 +771,52 @@ install_shell() {
     log "${BOLD}Key trade-off:${NC} Fish is NOT POSIX-compatible. Bash one-liners,"
     log "venv activate scripts, and most online snippets won't work directly in Fish."
 
-    echo ""
-    echo -e "${BOLD}${YELLOW}▶ Which shell would you like to set up?${NC}"
-    echo "  1) Fish  — modern, user-friendly, non-POSIX (recommended)"
-    echo "  2) Zsh   — powerful, POSIX-compatible, widely supported"
-    echo "  3) Skip  — keep your current shell"
-    read -rp "  Choice [1/2/3] (default: 1): " shell_choice
+    # Wizard / automation path: COSYTERM_SHELL_CHOICE is fish | zsh | skip.
+    if [[ -n "${COSYTERM_SHELL_CHOICE:-}" ]]; then
+        case "${COSYTERM_SHELL_CHOICE}" in
+            fish) SHELL_CHOICE="fish" ;;
+            zsh)  SHELL_CHOICE="zsh" ;;
+            skip)
+                SHELL_CHOICE="skip"
+                log_warn "COSYTERM_SHELL_CHOICE=skip — keeping current shell."
+                return 0
+                ;;
+            *)
+                log_error "Unknown COSYTERM_SHELL_CHOICE '${COSYTERM_SHELL_CHOICE}'. Valid: fish, zsh, skip."
+                SHELL_CHOICE="skip"
+                return 1
+                ;;
+        esac
+    else
+        echo ""
+        echo -e "${BOLD}${YELLOW}▶ Which shell would you like to set up?${NC}"
+        echo "  1) Fish  — modern, user-friendly, non-POSIX (recommended)"
+        echo "  2) Zsh   — powerful, POSIX-compatible, widely supported"
+        echo "  3) Skip  — keep your current shell"
+        local shell_choice
+        read -rp "  Choice [1/2/3] (default: 1): " shell_choice
 
-    # Validate — empty input accepts the default (fish). Anything other than
-    # 1/2/3 is treated as skip, because silently changing the default shell
-    # on a typo is the single most invasive thing this script could do.
-    case "$shell_choice" in
-        ""|1) SHELL_CHOICE="fish" ;;
-        2) SHELL_CHOICE="zsh" ;;
-        3)
-            SHELL_CHOICE="skip"
-            log_warn "Skipped shell installation. Starship will still work with your current shell."
-            return 0
-            ;;
-        *)
-            SHELL_CHOICE="skip"
-            log_warn "Unrecognised choice '$shell_choice' — skipping shell installation. Re-run cosyterm to pick a shell."
-            return 0
-            ;;
-    esac
+        # Validate — empty input accepts the default (fish). Anything other than
+        # 1/2/3 is treated as skip, because silently changing the default shell
+        # on a typo is the single most invasive thing this script could do.
+        case "$shell_choice" in
+            ""|1) SHELL_CHOICE="fish" ;;
+            2) SHELL_CHOICE="zsh" ;;
+            3)
+                SHELL_CHOICE="skip"
+                log_warn "Skipped shell installation. Starship will still work with your current shell."
+                return 0
+                ;;
+            *)
+                SHELL_CHOICE="skip"
+                log_warn "Unrecognised choice '$shell_choice' — skipping shell installation. Re-run cosyterm to pick a shell."
+                return 0
+                ;;
+        esac
+    fi
 
     # Install the chosen shell if not present
-    if ! has_cmd "$SHELL_CHOICE"; then
+    if is_plan_mode || ! has_cmd "$SHELL_CHOICE"; then
         log "Installing $SHELL_CHOICE..."
         pkg_install "$SHELL_CHOICE" || {
             log_error "Failed to install $SHELL_CHOICE"
@@ -654,8 +830,9 @@ install_shell() {
 
     # Fish 3.2+ is required: we emit `fish_add_path` during PATH migration,
     # which doesn't exist in older versions. Refusing old fish up front is
-    # cleaner than shipping a parallel fallback codepath.
-    if [[ "$SHELL_CHOICE" == "fish" ]]; then
+    # cleaner than shipping a parallel fallback codepath. Plan mode can't
+    # run the version check (fish isn't actually installed), so skip it.
+    if [[ "$SHELL_CHOICE" == "fish" ]] && ! is_plan_mode; then
         _require_fish_min_version || {
             SHELL_CHOICE="skip"
             return 1
@@ -672,11 +849,25 @@ install_shell() {
     # The guide mentions an alternative: launch fish from within Ghostty
     # instead of changing the system default. Offer both options.
     if [[ "$SHELL_CHOICE" == "fish" ]]; then
-        echo -e "${BOLD}${YELLOW}▶ How would you like to use Fish?${NC}"
-        echo "  1) Set as default shell  (chsh — affects all terminals)"
-        echo "  2) Launch from Ghostty only  (safer — Ghostty opens fish, everything else stays as-is)"
-        echo "  3) Don't change anything  (just install it, I'll configure later)"
-        read -rp "  Choice [1/2/3]: " fish_method
+        local fish_method=""
+        # Wizard / automation path: COSYTERM_FISH_METHOD = chsh | ghostty | none.
+        if [[ -n "${COSYTERM_FISH_METHOD:-}" ]]; then
+            case "${COSYTERM_FISH_METHOD}" in
+                chsh)    fish_method="1" ;;
+                ghostty) fish_method="2" ;;
+                none)    fish_method="3" ;;
+                *)
+                    log_error "Unknown COSYTERM_FISH_METHOD '${COSYTERM_FISH_METHOD}'. Valid: chsh, ghostty, none."
+                    return 1
+                    ;;
+            esac
+        else
+            echo -e "${BOLD}${YELLOW}▶ How would you like to use Fish?${NC}"
+            echo "  1) Set as default shell  (chsh — affects all terminals)"
+            echo "  2) Launch from Ghostty only  (safer — Ghostty opens fish, everything else stays as-is)"
+            echo "  3) Don't change anything  (just install it, I'll configure later)"
+            read -rp "  Choice [1/2/3]: " fish_method
+        fi
 
         case "$fish_method" in
             1)
@@ -684,18 +875,24 @@ install_shell() {
                 # produce a /snap/bin/fish symlink that chsh may refuse —
                 # warn the user to install via apt instead.
                 local fish_path
-                fish_path=$(_resolve_fish_path)
-                if [[ -z "$fish_path" ]]; then
-                    log_error "Couldn't locate the fish binary. Skipping default-shell change."
-                    return 0
-                fi
-                if [[ "$fish_path" == /snap/* ]]; then
-                    log_warn "Fish is installed via snap at $fish_path."
-                    log_warn "  chsh often rejects /snap paths. Consider installing fish via apt:"
-                    log_warn "    ${BOLD}sudo apt-get install fish${NC}"
-                    if ! confirm "Attempt chsh anyway?"; then
-                        log_warn "Skipped default-shell change."
+                if is_plan_mode; then
+                    # Fish isn't actually installed in plan mode; use a
+                    # representative path so the CMD line is sensible.
+                    fish_path="$(which fish 2>/dev/null || echo /opt/homebrew/bin/fish)"
+                else
+                    fish_path=$(_resolve_fish_path)
+                    if [[ -z "$fish_path" ]]; then
+                        log_error "Couldn't locate the fish binary. Skipping default-shell change."
                         return 0
+                    fi
+                    if [[ "$fish_path" == /snap/* ]]; then
+                        log_warn "Fish is installed via snap at $fish_path."
+                        log_warn "  chsh often rejects /snap paths. Consider installing fish via apt:"
+                        log_warn "    ${BOLD}sudo apt-get install fish${NC}"
+                        if ! confirm "Attempt chsh anyway?"; then
+                            log_warn "Skipped default-shell change."
+                            return 0
+                        fi
                     fi
                 fi
 
@@ -704,25 +901,27 @@ install_shell() {
                     # This needs sudo — if we're running non-interactively
                     # (COSYTERM_YES=1) and sudo isn't cached, the tee would
                     # hang waiting for a password. Bail out gracefully.
-                    if ! grep -qx "$fish_path" /etc/shells 2>/dev/null; then
-                        if [[ "${COSYTERM_YES:-}" == "1" ]] && ! sudo -n true 2>/dev/null; then
+                    if is_plan_mode || ! grep -qx "$fish_path" /etc/shells 2>/dev/null; then
+                        if ! is_plan_mode && [[ "${COSYTERM_YES:-}" == "1" ]] && ! sudo -n true 2>/dev/null; then
                             log_warn "sudo not cached and running non-interactively — skipping /etc/shells update."
                             log_warn "  Run manually: ${BOLD}echo '$fish_path' | sudo tee -a /etc/shells${NC}"
                             log_warn "  Then: ${BOLD}chsh -s $fish_path${NC}"
                             return 0
                         fi
                         log "Adding $fish_path to /etc/shells (requires sudo)..."
-                        echo "$fish_path" | sudo tee -a /etc/shells > /dev/null
+                        run_sh "echo $(printf '%q' "$fish_path") | sudo tee -a /etc/shells > /dev/null"
                     fi
 
-                    chsh -s "$fish_path"
+                    run chsh -s "$fish_path"
                     log_success "Default shell changed to Fish. Log out and back in to activate."
                 fi
                 ;;
             2)
                 log "Adding Fish launch to Ghostty config..."
                 local ghostty_config="$CONFIG_DIR/ghostty/config"
-                if [[ -f "$ghostty_config" ]]; then
+                if is_plan_mode; then
+                    plan_note "append 'command = \$(which fish)' to $ghostty_config (if present)"
+                elif [[ -f "$ghostty_config" ]]; then
                     # Only add if not already present
                     if ! grep -q "command.*fish" "$ghostty_config" 2>/dev/null; then
                         echo "" >> "$ghostty_config"
@@ -741,8 +940,14 @@ install_shell() {
                 ;;
         esac
     elif [[ "$SHELL_CHOICE" == "zsh" ]]; then
-        if confirm "Set Zsh as your default shell? (chsh -s $(which zsh))"; then
-            chsh -s "$(which zsh)"
+        local zsh_path
+        if is_plan_mode; then
+            zsh_path="$(which zsh 2>/dev/null || echo /bin/zsh)"
+        else
+            zsh_path="$(which zsh)"
+        fi
+        if confirm "Set Zsh as your default shell? (chsh -s $zsh_path)"; then
+            run chsh -s "$zsh_path"
             log_success "Default shell changed to Zsh."
         fi
     fi
@@ -1180,22 +1385,22 @@ install_starship() {
     log "It shows git branch, language versions, cloud context, and more."
     log "Written in Rust — very fast. Works with any shell."
 
-    if has_cmd starship; then
+    if ! is_plan_mode && has_cmd starship; then
         log_success "Starship is already installed"
     else
         if confirm "Install Starship?"; then
             if [[ "$OS" == "macos" ]]; then
-                brew install starship
+                run brew install starship
             else
                 # The official installer script — we show the user what's happening
                 log "Installing via the official Starship installer script..."
                 log "  Source: https://starship.rs/install.sh"
 
-                if curl -sS https://starship.rs/install.sh -o /tmp/starship-install.sh 2>>"$LOG_FILE"; then
+                if run curl -sS https://starship.rs/install.sh -o /tmp/starship-install.sh; then
                     log "Downloaded installer to /tmp/starship-install.sh"
                     if confirm "Run the Starship installer? (You can inspect /tmp/starship-install.sh first)"; then
-                        sh /tmp/starship-install.sh -y
-                        rm -f /tmp/starship-install.sh
+                        run sh /tmp/starship-install.sh -y
+                        run rm -f /tmp/starship-install.sh
                     else
                         log_warn "Skipped. The installer is saved at /tmp/starship-install.sh if you want to inspect and run it."
                         return 0
@@ -1207,7 +1412,7 @@ install_starship() {
             fi
 
             # ── Verify installation succeeded ──
-            if has_cmd starship; then
+            if is_plan_mode || has_cmd starship; then
                 log_success "Starship installed and verified on PATH"
             else
                 log_error "Starship install appeared to succeed but 'starship' is not on PATH."
@@ -1227,9 +1432,15 @@ install_starship() {
 
     if confirm "Write Starship config to $starship_config? (Catppuccin Mocha palette, git/node/python/docker context)"; then
         backup_if_exists "$starship_config"
-        mkdir -p "$CONFIG_DIR"
+        run mkdir -p "$CONFIG_DIR"
 
-        cat > "$starship_config" << 'STARSHIP_EOF'
+        if is_plan_mode; then
+            note_write "$starship_config" "starship config (Catppuccin Mocha palette, git/node/python/docker)"
+            # Skip the heredoc entirely in plan mode — we just want the CMD/WRITE
+            # lines, not a printed 200-line config body.
+            _starship_config_written=1
+        else
+            cat > "$starship_config" << 'STARSHIP_EOF'
 # Starship prompt configuration
 # Docs: https://starship.rs/config/
 #
@@ -1351,14 +1562,14 @@ base      = "#1e1e2e"
 mantle    = "#181825"
 crust     = "#11111b"
 STARSHIP_EOF
-
-        log_success "Starship config written"
+            log_success "Starship config written"
+        fi
     fi
 
     # Hook Starship into the chosen shell — but ONLY if the binary exists.
     # Writing 'starship init fish | source' without starship installed
     # causes an error on every shell startup.
-    if has_cmd starship; then
+    if is_plan_mode || has_cmd starship; then
         _hook_starship
     else
         log_warn "Starship binary not found — skipping shell hook to avoid startup errors."
@@ -1368,12 +1579,18 @@ STARSHIP_EOF
 
 _hook_starship() {
     if [[ "$SHELL_CHOICE" == "fish" ]]; then
+        local fish_confd="$CONFIG_DIR/fish/conf.d"
+        local init_file="$fish_confd/10-cosyterm-init.fish"
+
+        if is_plan_mode; then
+            note_write "$init_file" "fish conf.d — PATH safety net + brew shellenv + starship init"
+            return 0
+        fi
+
         # We write Homebrew PATH + Starship hook into conf.d/ instead of
         # config.fish. Fish sources conf.d/*.fish alphabetically before
         # config.fish, so 10-cosyterm-init runs after 00-cosyterm-path —
         # Starship is initialised once PATH is ready.
-        local fish_confd="$CONFIG_DIR/fish/conf.d"
-        local init_file="$fish_confd/10-cosyterm-init.fish"
         mkdir -p "$fish_confd"
 
         # Canonical brew shellenv path per architecture (same logic as
@@ -1423,6 +1640,10 @@ _hook_starship() {
         fi
     elif [[ "$SHELL_CHOICE" == "zsh" ]]; then
         local zshrc="$HOME/.zshrc"
+        if is_plan_mode; then
+            note_write "$zshrc" "append starship init zsh hook (3 lines)"
+            return 0
+        fi
         if ! grep -q "starship init zsh" "$zshrc" 2>/dev/null; then
             echo "" >> "$zshrc"
             echo "# Starship prompt" >> "$zshrc"
@@ -1449,18 +1670,18 @@ install_eza() {
     log "eza replaces 'ls' with colored output, file icons, git status,"
     log "and tree views. Works best with a Nerd Font installed."
 
-    if has_cmd eza; then
+    if ! is_plan_mode && has_cmd eza; then
         log_success "eza is already installed"
     else
         if confirm "Install eza?"; then
             if [[ "$OS" == "macos" ]]; then
-                brew install eza
+                run brew install eza
             elif [[ "$PKG_MANAGER" == "apt" ]]; then
                 # eza may need a PPA on older Ubuntu — try direct first
-                if ! pkg_install eza 2>>"$LOG_FILE"; then
+                if ! pkg_install eza; then
                     log_warn "eza not in default repos. Trying cargo install as fallback..."
-                    if has_cmd cargo; then
-                        cargo install eza
+                    if is_plan_mode || has_cmd cargo; then
+                        run cargo install eza
                     else
                         log_error "Could not install eza. Install Rust (rustup.rs) and run: cargo install eza"
                         return 1
@@ -1469,8 +1690,8 @@ install_eza() {
             else
                 pkg_install eza || {
                     log_warn "Falling back to cargo install..."
-                    if has_cmd cargo; then
-                        cargo install eza
+                    if is_plan_mode || has_cmd cargo; then
+                        run cargo install eza
                     else
                         log_error "Could not install eza."
                         return 1
@@ -1479,7 +1700,7 @@ install_eza() {
             fi
 
             # ── Verify installation succeeded ──
-            if has_cmd eza; then
+            if is_plan_mode || has_cmd eza; then
                 log_success "eza installed and verified on PATH"
             else
                 log_error "eza install appeared to succeed but 'eza' is not on PATH."
@@ -1494,7 +1715,7 @@ install_eza() {
     fi
 
     # Add aliases — only if eza is actually available
-    if has_cmd eza; then
+    if is_plan_mode || has_cmd eza; then
         _add_eza_aliases
     else
         log_warn "eza not found on PATH — skipping alias setup."
@@ -1511,13 +1732,16 @@ _add_eza_aliases() {
         # cosyterm already manages, not inside the user's config.fish.
         local fish_confd="$CONFIG_DIR/fish/conf.d"
         local eza_file="$fish_confd/20-cosyterm-aliases.fish"
-        mkdir -p "$fish_confd"
 
-        local tmp_eza
-        tmp_eza=$(mktemp "${eza_file}.XXXXXX")
-        # shellcheck disable=SC2064  # $tmp_eza intentionally expanded at trap-install time.
-        trap "rm -f '$tmp_eza'" EXIT
-        cat > "$tmp_eza" << 'FISH_EZA'
+        if is_plan_mode; then
+            note_write "$eza_file" "fish conf.d — eza aliases (ls, lsa, lt, lta)"
+        else
+            mkdir -p "$fish_confd"
+            local tmp_eza
+            tmp_eza=$(mktemp "${eza_file}.XXXXXX")
+            # shellcheck disable=SC2064  # $tmp_eza intentionally expanded at trap-install time.
+            trap "rm -f '$tmp_eza'" EXIT
+            cat > "$tmp_eza" << 'FISH_EZA'
 # cosyterm eza aliases (modern ls replacement)
 # Auto-generated; safe to edit.
 if command -v eza &> /dev/null
@@ -1527,21 +1751,24 @@ if command -v eza &> /dev/null
     alias lta='lt -a'
 end
 FISH_EZA
-        mv "$tmp_eza" "$eza_file"
-        trap - EXIT
-        log_success "eza aliases written to $eza_file"
+            mv "$tmp_eza" "$eza_file"
+            trap - EXIT
+            log_success "eza aliases written to $eza_file"
 
-        # Legacy cleanup: strip the old block from config.fish if present.
-        local fish_legacy="$CONFIG_DIR/fish/config.fish"
-        if [[ -f "$fish_legacy" ]] && grep -q "eza aliases (modern ls replacement)" "$fish_legacy" 2>/dev/null; then
-            _sed_inplace "/# eza aliases (modern ls replacement)/,/^end$/d" "$fish_legacy" \
-                && log "Removed legacy eza aliases from $fish_legacy"
+            # Legacy cleanup: strip the old block from config.fish if present.
+            local fish_legacy="$CONFIG_DIR/fish/config.fish"
+            if [[ -f "$fish_legacy" ]] && grep -q "eza aliases (modern ls replacement)" "$fish_legacy" 2>/dev/null; then
+                _sed_inplace "/# eza aliases (modern ls replacement)/,/^end$/d" "$fish_legacy" \
+                    && log "Removed legacy eza aliases from $fish_legacy"
+            fi
         fi
 
     elif [[ "$SHELL_CHOICE" == "zsh" ]]; then
         local zshrc="$HOME/.zshrc"
 
-        if ! grep -q "alias ls=" "$zshrc" 2>/dev/null; then
+        if is_plan_mode; then
+            note_write "$zshrc" "append eza aliases block (ls, lsa, lt, lta)"
+        elif ! grep -q "alias ls=" "$zshrc" 2>/dev/null; then
             cat >> "$zshrc" << 'ZSH_EZA'
 
 # eza aliases (modern ls replacement)
@@ -1558,10 +1785,12 @@ ZSH_EZA
         fi
     else
         log_warn "No shell selected. Add these aliases manually to your shell config:"
-        echo "  alias ls='eza -lh --group-directories-first --icons=auto'"
-        echo "  alias lsa='ls -a'"
-        echo "  alias lt='eza --tree --level=2 --long --icons --git'"
-        echo "  alias lta='lt -a'"
+        if ! is_plan_mode; then
+            echo "  alias ls='eza -lh --group-directories-first --icons=auto'"
+            echo "  alias lsa='ls -a'"
+            echo "  alias lt='eza --tree --level=2 --long --icons --git'"
+            echo "  alias lta='lt -a'"
+        fi
     fi
 }
 
@@ -1576,17 +1805,17 @@ install_tmux() {
     log "We'll theme it with Catppuccin Mocha to match everything else."
 
     # ── Install tmux ──
-    if has_cmd tmux; then
+    if ! is_plan_mode && has_cmd tmux; then
         log_success "tmux is already installed"
     else
         if confirm "Install tmux?"; then
             if [[ "$OS" == "macos" ]]; then
-                brew install tmux
+                run brew install tmux
             else
                 pkg_install tmux
             fi
 
-            if has_cmd tmux; then
+            if is_plan_mode || has_cmd tmux; then
                 log_success "tmux installed and verified on PATH"
             else
                 log_error "tmux install failed. Skipping tmux setup."
@@ -1601,13 +1830,13 @@ install_tmux() {
     # ── Install TPM (Tmux Plugin Manager) ──
     local tpm_dir="$HOME/.tmux/plugins/tpm"
 
-    if [[ -d "$tpm_dir" ]]; then
+    if ! is_plan_mode && [[ -d "$tpm_dir" ]]; then
         log_success "TPM (Tmux Plugin Manager) is already installed"
     else
         if confirm "Install TPM (Tmux Plugin Manager)?"; then
             log "Cloning TPM from GitHub..."
-            git clone https://github.com/tmux-plugins/tpm "$tpm_dir" 2>>"$LOG_FILE"
-            if [[ -d "$tpm_dir" ]]; then
+            run git clone https://github.com/tmux-plugins/tpm "$tpm_dir"
+            if is_plan_mode || [[ -d "$tpm_dir" ]]; then
                 log_success "TPM installed"
             else
                 log_error "Failed to clone TPM."
@@ -1621,14 +1850,14 @@ install_tmux() {
     # ── Install Catppuccin theme (manual clone method — avoids TPM naming conflicts) ──
     local catppuccin_dir="$CONFIG_DIR/tmux/plugins/catppuccin/tmux"
 
-    if [[ -d "$catppuccin_dir" ]]; then
+    if ! is_plan_mode && [[ -d "$catppuccin_dir" ]]; then
         log_success "Catppuccin tmux theme is already installed"
     else
         if confirm "Install Catppuccin Mocha theme for tmux?"; then
             log "Cloning Catppuccin tmux theme..."
-            mkdir -p "$CONFIG_DIR/tmux/plugins/catppuccin"
-            git clone -b v2.3.0 https://github.com/catppuccin/tmux.git "$catppuccin_dir" 2>>"$LOG_FILE"
-            if [[ -d "$catppuccin_dir" ]]; then
+            run mkdir -p "$CONFIG_DIR/tmux/plugins/catppuccin"
+            run git clone -b v2.3.0 https://github.com/catppuccin/tmux.git "$catppuccin_dir"
+            if is_plan_mode || [[ -d "$catppuccin_dir" ]]; then
                 log_success "Catppuccin tmux theme installed"
             else
                 log_error "Failed to clone Catppuccin theme."
@@ -1644,13 +1873,16 @@ install_tmux() {
 
         # Determine which shell tmux should use
         local tmux_shell=""
-        if [[ "$SHELL_CHOICE" == "fish" ]] && has_cmd fish; then
-            tmux_shell="$(which fish)"
-        elif [[ "$SHELL_CHOICE" == "zsh" ]] && has_cmd zsh; then
-            tmux_shell="$(which zsh)"
+        if [[ "$SHELL_CHOICE" == "fish" ]] && (is_plan_mode || has_cmd fish); then
+            tmux_shell="$(which fish 2>/dev/null || echo /opt/homebrew/bin/fish)"
+        elif [[ "$SHELL_CHOICE" == "zsh" ]] && (is_plan_mode || has_cmd zsh); then
+            tmux_shell="$(which zsh 2>/dev/null || echo /bin/zsh)"
         fi
 
-        cat > "$tmux_conf" << TMUX_EOF
+        if is_plan_mode; then
+            note_write "$tmux_conf" "tmux config (Catppuccin Mocha, mouse, status modules)"
+        else
+            cat > "$tmux_conf" << TMUX_EOF
 # ─────────────────────────────────────────────────────────────
 # tmux configuration — Catppuccin Mocha
 # ─────────────────────────────────────────────────────────────
@@ -1705,11 +1937,11 @@ set -g @plugin 'tmux-plugins/tmux-sensible'
 # Initialize TPM (keep this line at the very bottom)
 run '~/.tmux/plugins/tpm/tpm'
 TMUX_EOF
-
-        log_success "tmux config written to $tmux_conf"
-        echo ""
-        log "To finish setup, open tmux and press ${BOLD}prefix + I${NC} (capital I)"
-        log "to install TPM plugins. Default prefix is ${BOLD}Ctrl+b${NC}."
+            log_success "tmux config written to $tmux_conf"
+            echo ""
+            log "To finish setup, open tmux and press ${BOLD}prefix + I${NC} (capital I)"
+            log "to install TPM plugins. Default prefix is ${BOLD}Ctrl+b${NC}."
+        fi
     fi
 }
 
@@ -1806,8 +2038,8 @@ nvim_preflight_choice() {
 # Install LazyVim at $1 (the target config dir). Uses git clone.
 nvim_install_lazyvim() {
     local target="$1"
-    git clone "$LAZYVIM_REPO" "$target"
-    rm -rf "$target/.git"
+    run git clone "$LAZYVIM_REPO" "$target"
+    run rm -rf "$target/.git"
 }
 
 install_neovim() {
@@ -1817,12 +2049,12 @@ install_neovim() {
     log "that gives you IDE features out of the box: file explorer, fuzzy find,"
     log "LSP support, git integration, syntax highlighting."
 
-    if has_cmd nvim; then
+    if ! is_plan_mode && has_cmd nvim; then
         log_success "NeoVim is already installed"
     else
         if confirm "Install NeoVim?"; then
             if [[ "$OS" == "macos" ]]; then
-                brew install neovim
+                run brew install neovim
             else
                 pkg_install neovim
             fi
@@ -1836,7 +2068,9 @@ install_neovim() {
     local nvim_config="$CONFIG_DIR/nvim"
 
     # No existing config — simple path, no risk.
-    if [[ ! -d "$nvim_config" ]]; then
+    # Plan mode doesn't know if the user's nvim config exists, so it falls
+    # through to the preflight route where COSYTERM_NVIM_CHOICE dictates.
+    if ! is_plan_mode && [[ ! -d "$nvim_config" ]]; then
         if confirm "Install LazyVim (pre-configured NeoVim setup)?"; then
             nvim_install_lazyvim "$nvim_config"
             log_success "LazyVim installed. Run 'nvim' to complete plugin installation."
@@ -1884,7 +2118,7 @@ install_neovim() {
             backup_move "$HOME/.local/share/nvim" "neovim"
             backup_move "$HOME/.local/state/nvim" "neovim"
             # Cache is regenerable — delete without backup.
-            rm -rf "$HOME/.cache/nvim"
+            run rm -rf "$HOME/.cache/nvim"
             nvim_install_lazyvim "$nvim_config"
             log_success "LazyVim installed. Previous config is in ${BOLD}$BACKUP_DIR${NC}"
             log "To restore: ${BOLD}cosyterm restore --latest --only neovim${NC}"
@@ -2088,39 +2322,48 @@ main() {
         return
     fi
 
-    # Full setup mode
-    echo ""
-    echo -e "${BOLD}${CYAN}╔═══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BOLD}${CYAN}║           Terminal Setup Installer                           ║${NC}"
-    echo -e "${BOLD}${CYAN}║   Based on the Upsun Dev Center guide by Guillaume Moigneu   ║${NC}"
-    echo -e "${BOLD}${CYAN}╚═══════════════════════════════════════════════════════════════╝${NC}"
-    echo ""
-    echo "This script will walk you through installing and configuring:"
-    echo "  • Nerd Font, Ghostty, Fish/Zsh, Starship, eza, tmux, NeoVim, LazyVim"
-    echo ""
-    echo "Every critical step will ask for your confirmation first."
-    echo "All existing configs are backed up before being changed."
-    echo ""
+    # Full setup mode. Plan mode skips banners / prompts so stdout contains
+    # only machine-parseable CMD/WRITE/SECTION/NOTE lines for the wizard.
+    if ! is_plan_mode; then
+        echo ""
+        echo -e "${BOLD}${CYAN}╔═══════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${BOLD}${CYAN}║           Terminal Setup Installer                           ║${NC}"
+        echo -e "${BOLD}${CYAN}║   Based on the Upsun Dev Center guide by Guillaume Moigneu   ║${NC}"
+        echo -e "${BOLD}${CYAN}╚═══════════════════════════════════════════════════════════════╝${NC}"
+        echo ""
+        echo "This script will walk you through installing and configuring:"
+        echo "  • Nerd Font, Ghostty, Fish/Zsh, Starship, eza, tmux, NeoVim, LazyVim"
+        echo ""
+        echo "Every critical step will ask for your confirmation first."
+        echo "All existing configs are backed up before being changed."
+        echo ""
 
-    if ! confirm "Ready to begin?"; then
-        echo "No worries. Run this script again when you're ready."
-        exit 0
+        if ! confirm "Ready to begin?"; then
+            echo "No worries. Run this script again when you're ready."
+            exit 0
+        fi
+
+        # Initialise log file
+        mkdir -p "$(dirname "$LOG_FILE")"
+        echo "=== Terminal Setup Log — $(date) ===" > "$LOG_FILE"
     fi
 
-    # Initialise log file
-    mkdir -p "$(dirname "$LOG_FILE")"
-    echo "=== Terminal Setup Log — $(date) ===" > "$LOG_FILE"
+    # Which steps to run. COSYTERM_STEPS is a CSV of step names (font,
+    # ghostty, shell, starship, eza, tmux, neovim). Default = all.
+    local steps="${COSYTERM_STEPS:-font,ghostty,shell,starship,eza,tmux,neovim}"
 
     preflight
-    install_nerd_font
-    install_ghostty
-    install_shell
-    install_starship
-    install_eza
-    install_tmux
-    install_neovim
-    verify_setup
-    print_summary
+    [[ ",$steps," == *",font,"* ]]     && install_nerd_font
+    [[ ",$steps," == *",ghostty,"* ]]  && install_ghostty
+    [[ ",$steps," == *",shell,"* ]]    && install_shell
+    [[ ",$steps," == *",starship,"* ]] && install_starship
+    [[ ",$steps," == *",eza,"* ]]      && install_eza
+    [[ ",$steps," == *",tmux,"* ]]     && install_tmux
+    [[ ",$steps," == *",neovim,"* ]]   && install_neovim
+    if ! is_plan_mode; then
+        verify_setup
+        print_summary
+    fi
 }
 
 main "$@"
