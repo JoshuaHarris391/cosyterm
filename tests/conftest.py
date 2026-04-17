@@ -68,7 +68,14 @@ def install_fixture() -> Callable[[str, Path], None]:
     return _install_fixture
 
 
-def _sandbox_env(tmp_home: Path, *, extra: dict | None = None) -> dict:
+def _sandbox_env(
+    tmp_home: Path,
+    *,
+    extra: dict | None = None,
+    plan: bool = False,
+    steps: list[str] | None = None,
+    choices: dict[str, str] | None = None,
+) -> dict:
     """Environment for running setup.sh or the CLI inside a sandbox.
 
     - HOME points at tmp_home.
@@ -79,6 +86,12 @@ def _sandbox_env(tmp_home: Path, *, extra: dict | None = None) -> dict:
     - COSYTERM_LOG_FILE redirects the log inside the sandbox.
     - COSYTERM_FAKE_LOG captures every fake-bin invocation for assertions.
     - PYTHONPATH lets the CLI run without `pip install`.
+
+    Wizard-era knobs:
+    - plan=True sets COSYTERM_PLAN=1 (dry-run, prints CMD/WRITE lines).
+    - steps=["ghostty", "eza"] sets COSYTERM_STEPS to that CSV.
+    - choices={"font_choice": "0xProto", "shell_choice": "fish"} maps to
+      COSYTERM_FONT_CHOICE / COSYTERM_SHELL_CHOICE / etc.
     """
     env = {
         "HOME": str(tmp_home),
@@ -92,6 +105,13 @@ def _sandbox_env(tmp_home: Path, *, extra: dict | None = None) -> dict:
         "LANG": os.environ.get("LANG", "en_US.UTF-8"),
         "TERM": os.environ.get("TERM", "dumb"),
     }
+    if plan:
+        env["COSYTERM_PLAN"] = "1"
+    if steps:
+        env["COSYTERM_STEPS"] = ",".join(steps)
+    if choices:
+        for k, v in choices.items():
+            env[f"COSYTERM_{k.upper()}"] = v
     if extra:
         env.update(extra)
     return env
@@ -100,8 +120,16 @@ def _sandbox_env(tmp_home: Path, *, extra: dict | None = None) -> dict:
 @pytest.fixture
 def sandbox_env(tmp_home: Path) -> Callable[..., dict]:
     """Factory: build the sandbox env, optionally with extra vars merged in."""
-    def build(**extra: str) -> dict:
-        return _sandbox_env(tmp_home, extra=extra)
+    def build(
+        *,
+        plan: bool = False,
+        steps: list[str] | None = None,
+        choices: dict[str, str] | None = None,
+        **extra: str,
+    ) -> dict:
+        return _sandbox_env(
+            tmp_home, extra=extra, plan=plan, steps=steps, choices=choices
+        )
     return build
 
 
@@ -124,6 +152,23 @@ def _run_setup_sh(step: str, env: dict) -> RunResult:
     return RunResult(r.returncode, r.stdout, r.stderr)
 
 
+def _run_setup_sh_full(env: dict) -> RunResult:
+    """Invoke setup.sh without a step arg — exercises the main flow.
+
+    Used by plan-mode tests that need to see SECTION markers and
+    step-gating via COSYTERM_STEPS.
+    """
+    r = subprocess.run(
+        ["bash", str(SETUP_SH)],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        stdin=subprocess.DEVNULL,  # detects blocking `read -rp` regressions
+    )
+    return RunResult(r.returncode, r.stdout, r.stderr)
+
+
 def _run_cli(args: list[str], env: dict) -> RunResult:
     """Invoke the cosyterm CLI as a module. Returns merged output."""
     r = subprocess.run(
@@ -139,6 +184,11 @@ def _run_cli(args: list[str], env: dict) -> RunResult:
 @pytest.fixture
 def run_setup_sh() -> Callable[[str, dict], RunResult]:
     return _run_setup_sh
+
+
+@pytest.fixture
+def run_setup_sh_full() -> Callable[[dict], RunResult]:
+    return _run_setup_sh_full
 
 
 @pytest.fixture
