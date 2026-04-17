@@ -64,10 +64,10 @@ DEFAULT_FONTS=(
 )
 
 FUN_FONTS=(
+    "0xProto"
     "Monofur"
     "OpenDyslexic"
     "Agave"
-    "0xProto"
     "Hasklig"
 )
 
