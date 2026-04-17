@@ -2,6 +2,8 @@
 
 Every cosyTerm run writes a manifest of what it changed, so diagnosing problems and reversing a run are first-class commands.
 
+If the curses wizard misbehaves on a particular terminal (unusual `$TERM`, tmux-inside-tmux, ssh without allocated tty), run `cosyterm --classic` to fall back to the old step-by-step inline prompts. The wizard also auto-falls-back whenever stdin/stdout isn't a TTY, so CI and scripted installs keep working.
+
 ## Diagnose with `doctor`
 
 ```bash

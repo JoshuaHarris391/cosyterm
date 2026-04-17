@@ -11,7 +11,7 @@ This is opinionated by design. The constraint is the feature.
 - New tools that improve the curated experience (e.g., better git UIs, fuzzy finders)
 - Platform support (more Linux distros, WSL)
 - Additional Nerd Font options
-- Quality-of-life improvements to the installer flow
+- Quality-of-life improvements to the installer flow (e.g. the interactive wizard with command-review before execution)
 
 ## What I won't add
 
