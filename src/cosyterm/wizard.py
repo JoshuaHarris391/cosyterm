@@ -28,13 +28,13 @@ from pathlib import Path
 from typing import Callable
 
 INSTALL_STEPS: list[tuple[str, str]] = [
-    ("font",     "Nerd Font           — icons + glyphs for Starship/eza"),
-    ("ghostty",  "Ghostty             — GPU-accelerated terminal"),
-    ("shell",    "Shell               — Fish or Zsh"),
-    ("starship", "Starship prompt     — git/lang/context-aware prompt"),
-    ("eza",      "eza                 — modern ls with colors + icons"),
-    ("tmux",     "tmux + Catppuccin   — multiplexer with the theme"),
-    ("neovim",   "NeoVim + LazyVim    — IDE-grade editor, zero-setup"),
+    ("font",     "Nerd Font         — code font patched with icons/symbols so prompts and file listings show glyphs, not boxes"),
+    ("ghostty",  "Ghostty           — the terminal app window itself; a modern replacement for Terminal.app / gnome-terminal"),
+    ("shell",    "Shell (Fish/Zsh)  — the program that reads your commands; Fish autocompletes and syntax-highlights as you type"),
+    ("starship", "Starship prompt   — the info line before your cursor: current folder, git branch, language version, etc."),
+    ("eza",      "eza               — a nicer 'ls': colors, file icons, git status, and a handy tree view"),
+    ("tmux",     "tmux + Catppuccin — split one terminal into panes and keep sessions alive after you close the window"),
+    ("neovim",   "NeoVim + LazyVim  — a modern Vim with IDE features (file tree, fuzzy search, LSP autocomplete) pre-configured"),
 ]
 
 FUN_FONTS: list[tuple[str, str]] = [
