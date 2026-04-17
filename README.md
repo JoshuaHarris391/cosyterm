@@ -45,6 +45,30 @@ Prefer the old step-by-step prompts (or running in a non-TTY environment like CI
 | **[tmux](https://github.com/tmux/tmux)** | Terminal multiplexer with pastel status bar at top |
 | **[NeoVim](https://neovim.io) + [LazyVim](https://lazyvim.github.io)** | IDE-grade editor, pre-configured, zero setup |
 
+## Changing your font
+
+Pick any of the 10 bundled Nerd Fonts at install time, or switch later.
+
+**Switch to a different bundled font**
+
+```bash
+cosyterm install font
+```
+
+Re-runs just the font step. Select a new one from the menu; cosyterm installs it and rewrites the `font-family` line in `~/.config/ghostty/config` automatically. Restart Ghostty to pick it up.
+
+**Use a font you installed yourself**
+
+Edit `~/.config/ghostty/config` and change the `font-family` line to your font's family name (the same string Ghostty expects — e.g. `font-family = MyFont Nerd Font Mono`). Restart Ghostty.
+
+**Scripted / non-interactive**
+
+```bash
+COSYTERM_FONT_CHOICE=0xProto COSYTERM_YES=1 cosyterm install font
+```
+
+Valid keys: `JetBrainsMono`, `CommitMono`, `CascadiaCode`, `Hack`, `FiraCode`, `0xProto`, `Monofur`, `OpenDyslexic`, `Agave`, `Hasklig`, or `skip`.
+
 ## Docs
 
 - **[Safety model](docs/safety.md)** — every command that runs, every URL fetched, every `sudo` — plus backups and blast-radius guarantees.
