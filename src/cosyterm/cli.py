@@ -2,9 +2,15 @@
 CLI entry point for cosyterm.
 
 Usage:
-    cosyterm          Run the full interactive setup
-    cosyterm doctor   Check your setup for issues
-    cosyterm --help   Show help
+    cosyterm              Run the interactive wizard: pick your tools,
+                          review the exact commands, confirm, execute.
+    cosyterm --classic    Use the old step-by-step inline prompts instead
+                          (also the automatic fallback when stdin/stdout
+                          aren't a TTY, e.g. in CI).
+    cosyterm doctor       Check your setup for issues.
+    cosyterm install X    Re-run a single step (font, ghostty, shell, …).
+    cosyterm restore …    Undo a previous install from a backup.
+    cosyterm --help       Show help.
 """
 
 import argparse
@@ -37,11 +43,22 @@ def main():
         version=f"cosyterm {__version__}",
     )
 
+    parser.add_argument(
+        "--classic",
+        action="store_true",
+        help="Skip the interactive wizard and use the old step-by-step prompts.",
+    )
+
     subparsers = parser.add_subparsers(dest="command")
 
-    subparsers.add_parser(
+    setup_parser = subparsers.add_parser(
         "setup",
         help="Run the full interactive terminal setup (default)",
+    )
+    setup_parser.add_argument(
+        "--classic",
+        action="store_true",
+        help="Skip the interactive wizard and use the old step-by-step prompts.",
     )
 
     subparsers.add_parser(
@@ -118,8 +135,10 @@ def main():
             dry_run=args.dry_run,
         ))
     else:
-        # Default action: run setup
-        sys.exit(setup())
+        # Default action: run setup. `--classic` works both as a top-level
+        # flag and as a subcommand flag (`cosyterm setup --classic`).
+        classic = bool(getattr(args, "classic", False))
+        sys.exit(setup(classic=classic))
 
 
 if __name__ == "__main__":
