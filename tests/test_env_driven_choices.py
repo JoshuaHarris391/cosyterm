@@ -13,6 +13,8 @@ CI runs on both macOS (brew) and Ubuntu (apt), so install-command assertions
 use _matches_install() to accept either package manager's output.
 """
 
+from __future__ import annotations
+
 import sys
 
 
