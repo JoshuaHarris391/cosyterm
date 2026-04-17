@@ -51,9 +51,16 @@ def test_plan_mode_never_invokes_fake_bins(tmp_home: Path, sandbox_env, run_setu
 
 
 def test_plan_mode_emits_expected_commands(sandbox_env, run_setup_sh_full):
-    """A minimal ghostty+eza plan should include the two brew-install CMDs
-    and a WRITE line for the ghostty config.
+    """A minimal ghostty+eza plan should include install CMDs for both
+    tools and a WRITE line for the ghostty config.
+
+    CI runs on Ubuntu (apt) and macOS (brew), so we check that either
+    platform's install command appears — the package manager varies but
+    the contract is "a command that installs ghostty + one that installs
+    eza is planned".
     """
+    import sys as _sys
+
     env = sandbox_env(
         plan=True,
         steps=["ghostty", "eza"],
@@ -62,8 +69,15 @@ def test_plan_mode_emits_expected_commands(sandbox_env, run_setup_sh_full):
     result = run_setup_sh_full(env)
     stdout = result.stdout
 
-    assert "CMD\tbrew install --cask ghostty" in stdout
-    assert "CMD\tbrew install eza" in stdout
+    if _sys.platform == "darwin":
+        assert "CMD\tbrew install --cask ghostty" in stdout
+        assert "CMD\tbrew install eza" in stdout
+    else:
+        assert "CMD\tsudo apt-get install -y ghostty" in stdout
+        # eza falls back to apt install (or cargo install on old Ubuntu);
+        # both are acceptable signals that the step ran.
+        assert "eza" in stdout and "CMD\tsudo apt-get install -y eza" in stdout or "CMD\tcargo install eza" in stdout
+
     assert "WRITE\t" in stdout and "ghostty/config" in stdout
     assert "SECTION\tStep 2/7: Ghostty terminal emulator" in stdout
 
