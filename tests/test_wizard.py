@@ -7,7 +7,6 @@ parse_plan_output(), which are the two pieces of logic that can drift
 between Python and the bash side.
 """
 
-import pytest
 
 from cosyterm.wizard import (
     PlanEntry,

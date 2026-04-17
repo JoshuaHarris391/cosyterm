@@ -10,9 +10,7 @@ timeout: if the script still tries to `read`, it'll hang and the test will
 time out with a clear failure message.
 """
 
-import subprocess
 
-import pytest
 
 
 def test_font_choice_env_var_bypasses_prompt(sandbox_env, run_setup_sh_full):

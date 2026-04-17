@@ -25,7 +25,6 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
 
 INSTALL_STEPS: list[tuple[str, str]] = [
     ("font",     "Nerd Font         — code font patched with icons/symbols so prompts and file listings show glyphs, not boxes"),

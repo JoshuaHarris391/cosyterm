@@ -11,10 +11,8 @@ unwrapped usages.
 """
 
 import re
-from pathlib import Path
 
 from cosyterm.core import _get_script_path
-
 
 # Commands that must always be wrapped when they mutate the system.
 # Each entry: (name, regex-that-matches-a-bare-use, regex-that-matches-the-wrapped-form)
