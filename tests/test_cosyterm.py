@@ -58,3 +58,36 @@ def test_doctor_runs():
     # doctor() should return an int (number of issues)
     result = doctor()
     assert isinstance(result, int)
+
+
+def test_path_helper_safety_net_emitted():
+    """Both generated fish conf.d files must emit the path_helper safety net.
+
+    Without it, tmux's `default-command` spawns fish non-login, macOS
+    path_helper is skipped, /usr/bin is missing from PATH, and starship's
+    init crashes because fish's psub can't find mktemp.
+
+    This test guards against regressions that drop the safety line from
+    either _hook_starship (10-cosyterm-init.fish) or _migrate_path_to_fish
+    (00-cosyterm-path.fish).
+    """
+    from cosyterm.core import _get_script_path
+
+    script_text = _get_script_path().read_text()
+    safety_line = (
+        'fish_add_path --append --path /usr/local/bin /usr/bin /bin /usr/sbin /sbin'
+    )
+
+    # At minimum: one occurrence in _hook_starship, one in _migrate_path_to_fish
+    # main header, one in the minimal-file writer. Require >= 3.
+    count = script_text.count(safety_line)
+    assert count >= 3, (
+        f"expected safety-net line to appear at least 3 times in setup.sh, "
+        f"found {count}. Missing emission site?"
+    )
+
+    # Also assert both containing function names are in the script — if one
+    # is renamed without updating this test, the count check catches it, but
+    # failing loudly here gives a clearer error.
+    assert "_hook_starship" in script_text
+    assert "_migrate_path_to_fish" in script_text
