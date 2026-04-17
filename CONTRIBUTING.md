@@ -32,7 +32,7 @@ I won't merge additions that make the user think harder. The whole point is they
 
 ## Code style
 
-- **Bash**: `set -euo pipefail`, functions prefixed with `install_` or `_helper`, log everything
+- **Bash**: `set -euo pipefail`, functions prefixed with `install_` or `_helper`, log everything. **Every external command goes through `run` / `run_sh`** (or a helper that itself uses them, like `pkg_install`) so plan-mode dry-runs stay accurate. Heredoc config writes must be guarded with `if is_plan_mode; then note_write "$path"; else cat > "$path" <<EOF ...` — the wizard review screen lies if real writes happen during a plan
 - **Python**: standard library only, no third-party dependencies, type hints where useful
 - Keep it simple. If a change needs a paragraph to explain, it might be too complex.
 

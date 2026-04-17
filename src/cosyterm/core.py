@@ -88,25 +88,27 @@ def _print_bash_hint() -> None:
         print("  sudo dnf install bash     (Fedora)", file=sys.stderr)
 
 
-def setup() -> int:
+def setup(classic: bool = False) -> int:
     """
-    Run the full interactive terminal setup.
+    Run the terminal setup.
 
-    This launches the bundled setup.sh script which walks you through
-    installing and configuring:
-      - Nerd Font (your choice of 10 fonts)
-      - Ghostty terminal emulator
-      - Zsh or Fish shell (with PATH migration to Fish)
-      - Starship prompt
-      - eza (modern ls)
-      - tmux with Catppuccin Mocha theme
-      - NeoVim + LazyVim
+    Default flow (classic=False):
+      1. Launches the interactive curses wizard which collects all choices
+         up-front (which tools, font, shell, fish method, nvim handling).
+      2. Dry-runs setup.sh with COSYTERM_PLAN=1 to enumerate the literal
+         shell commands that would execute.
+      3. Shows a review screen with every command for approval.
+      4. On confirmation, spawns setup.sh with the collected choices and
+         COSYTERM_YES=1 so it runs non-interactively without re-asking.
 
-    Every destructive step requires confirmation. All existing configs
-    are backed up before being modified.
+    Classic flow (classic=True, or when stdin/stdout is not a TTY):
+      Falls back to the step-by-step inline bash flow — one prompt per step.
+
+    Either way, every destructive step backs up existing configs first;
+    'cosyterm restore --latest' reverses the whole run.
 
     Returns:
-        Exit code from the setup script (0 = success).
+        Exit code from the setup script (0 = success, 130 = user cancelled).
     """
     script = _get_script_path()
 
@@ -121,10 +123,37 @@ def setup() -> int:
         _print_bash_hint()
         return 1
 
-    # Make the script executable
     os.chmod(script, 0o755)
 
-    # Run the script interactively — it needs stdin for user prompts
+    # Wizard-first flow. run_wizard returns None if the user cancels OR if
+    # stdin/stdout is not a TTY (curses can't init) — in either case we fall
+    # back to classic inline mode when --classic was passed, or exit cleanly
+    # otherwise.
+    if not classic:
+        from cosyterm import wizard
+
+        config = wizard.run_wizard(script, bash)
+        if config is not None:
+            env = {**os.environ, **config.to_env(), "COSYTERM_YES": "1"}
+            try:
+                result = subprocess.run(
+                    [bash, str(script)],
+                    env=env,
+                    stdin=sys.stdin,
+                    stdout=sys.stdout,
+                    stderr=sys.stderr,
+                )
+                return result.returncode
+            except KeyboardInterrupt:
+                print("\n\nSetup cancelled. Run 'cosyterm' to start again.")
+                return 130
+
+        # Wizard returned None. If we're on a TTY the user actively cancelled;
+        # otherwise it's a headless shell and we fall through to classic.
+        if sys.stdout.isatty() and sys.stdin.isatty():
+            print("\nSetup cancelled.")
+            return 130
+
     try:
         result = subprocess.run(
             [bash, str(script)],

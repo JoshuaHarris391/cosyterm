@@ -2,9 +2,10 @@
 
 cosyTerm modifies files in your home directory and, on Linux, runs `sudo` for package installs and for appending Fish to `/etc/shells`. Here's how it minimises blast radius.
 
+- **Review-before-run** — the default wizard flow dry-runs the installer in plan mode (`COSYTERM_PLAN=1`) and shows you every `brew`, `curl`, `git clone`, `sudo tee`, and `chsh` command it will run. Nothing is executed until you confirm that list.
 - **Backups** — existing configs are backed up to `~/.terminal-setup-backups/<timestamp>/` before being touched. The NeoVim step **moves** (not copies) `~/.config/nvim`, `~/.local/share/nvim`, and `~/.local/state/nvim` into the backup so plugin state and your `lazy-lock.json` come back exactly if you restore. Cache (`~/.cache/nvim`) is regenerable and not backed up.
 - **Manifest** — every move/copy is recorded in `<backup>/manifest.tsv` so `cosyterm restore` can undo them exactly.
-- **Confirmations** — every install and config write asks `[y/N]` first. Replacing an existing NeoVim config requires typing `replace` — not a single keystroke.
+- **Confirmations** — the wizard's review screen is the single final confirmation; you approve the full command list once. In `--classic` mode the old per-step `[y/N]` prompts apply instead. Either way, replacing an existing NeoVim config requires typing `replace` — not a single keystroke.
 - **NeoVim pre-flight** — if you already have a NeoVim config, you're offered `skip` / `side-by-side` (installs to `~/.config/nvim-cosy`, original untouched) / `replace`. The safe route is the default when auto-confirming.
 - **Verification** — after each install, the binary is confirmed on PATH before writing any config that references it.
 - **Mismatch detection** — a final check catches configs pointing to tools that aren't installed.

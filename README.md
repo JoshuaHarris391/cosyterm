@@ -29,7 +29,9 @@ pip install cosyterm
 cosyterm
 ```
 
-Seven `[y/N]` prompts. About two minutes. Nothing installs without you saying yes. Existing configs are moved to a timestamped backup first, so `cosyterm restore --latest` reverses the whole run.
+Launches an interactive wizard. Pick which tools to install, choose your font and shell, then review **every shell command that will run** before a single thing happens. One final Enter executes the whole plan. About two minutes. Existing configs are moved to a timestamped backup first, so `cosyterm restore --latest` reverses the whole run.
+
+Prefer the old step-by-step prompts (or running in a non-TTY environment like CI)? `cosyterm --classic`.
 
 ## What you get
 
