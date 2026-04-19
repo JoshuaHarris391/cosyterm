@@ -14,7 +14,7 @@ Or from Python:
     >>> cosyterm.setup()
 """
 
-__version__ = "0.3.1"
+__version__ = "0.4.0"
 
 from cosyterm.core import INSTALL_STEPS, doctor, install_step, setup
 
