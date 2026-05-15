@@ -30,27 +30,74 @@ def test_script_is_valid_bash():
 
 
 def test_check_bash():
-    """_check_bash must refuse bash < 4 (macOS /bin/bash) and return a path
-    otherwise. If nothing suitable is installed, it returns "" — the caller
-    prints an actionable hint. On dev machines without Homebrew bash this
-    test is skipped rather than fabricating a fake bash 4+ binary."""
+    """_check_bash must return an executable bash path whose major version
+    meets MIN_BASH_MAJOR. If no bash at all exists on the machine, it returns
+    "" and the caller prints an actionable hint."""
     import shutil
+
+    from cosyterm.core import MIN_BASH_MAJOR, _bash_major_version, _check_bash
+
+    if shutil.which("bash") is None and not _bash_major_version("/bin/bash"):
+        import pytest
+        pytest.skip("no bash on PATH and /bin/bash absent")
+
+    bash = _check_bash()
+    assert bash, "bash should be discoverable"
+    assert _bash_major_version(bash) >= MIN_BASH_MAJOR
+
+
+def test_issue_2_check_bash_accepts_bash_3_on_macos():
+    """Regression test for #2: macOS /bin/bash 3.2 must not be rejected.
+
+    Before the fix, MIN_BASH_MAJOR=4 caused cosyterm to refuse to run on a
+    stock macOS install, even though setup.sh is authored to be bash-3.2
+    compatible. This test asserts that when /bin/bash exists and reports a
+    major version >= 3, _check_bash returns a usable path rather than the
+    empty string.
+    """
+    import os
 
     from cosyterm.core import _bash_major_version, _check_bash
 
-    if not any(
-        shutil.which(p) or None
-        for p in ("/opt/homebrew/bin/bash", "/usr/local/bin/bash")
-    ):
-        # Also accept system bash if it's 4+.
-        system_bash = shutil.which("bash")
-        if not (system_bash and _bash_major_version(system_bash) >= 4):
-            import pytest
-            pytest.skip("no bash >= 4 on this machine; install via brew install bash")
+    if not (os.path.isfile("/bin/bash") and os.access("/bin/bash", os.X_OK)):
+        import pytest
+        pytest.skip("/bin/bash not present — test only meaningful where it is")
+
+    system_major = _bash_major_version("/bin/bash")
+    if system_major < 3:
+        import pytest
+        pytest.skip(f"/bin/bash reports major version {system_major}")
 
     bash = _check_bash()
-    assert bash, "bash >= 4 should be discoverable"
-    assert _bash_major_version(bash) >= 4
+    assert bash, (
+        "On a machine where /bin/bash exists and is >= 3.x, _check_bash must "
+        "return a usable bash path — pre-fix it returned '' because the gate "
+        "required bash 4+."
+    )
+
+
+def test_setup_script_parses_under_bin_bash():
+    """setup.sh must pass `bash -n` under the system /bin/bash so that macOS
+    users running 3.2 don't hit a parse error mid-install.
+
+    Skipped if /bin/bash isn't present (non-Unix CI, sandboxed envs)."""
+    import os
+    import subprocess
+
+    from cosyterm.core import _get_script_path
+
+    if not (os.path.isfile("/bin/bash") and os.access("/bin/bash", os.X_OK)):
+        import pytest
+        pytest.skip("/bin/bash not present")
+
+    result = subprocess.run(
+        ["/bin/bash", "-n", str(_get_script_path())],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, (
+        f"setup.sh failed bash 3.2 syntax check under /bin/bash:\n{result.stderr}"
+    )
 
 
 def test_doctor_runs():

@@ -9,10 +9,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-# setup.sh uses features (associative arrays, &>>, ${var,,}, etc.) that require
-# bash 4+. macOS ships /bin/bash 3.2 for licensing reasons; running under it
-# risks a cryptic parse error mid-install instead of an actionable message.
-MIN_BASH_MAJOR = 4
+# setup.sh is authored to run under bash 3.2 (the macOS /bin/bash) — it avoids
+# associative arrays, pattern substitution, and other bash-4-only features.
+# We still gate on a minimum major version so an exotic bash 2 (effectively
+# extinct) doesn't silently fail with a cryptic parse error.
+MIN_BASH_MAJOR = 3
 
 
 def _get_script_path() -> Path:
@@ -39,29 +40,23 @@ def _bash_major_version(bash_path: str) -> int:
 
 
 def _check_bash() -> str:
-    """Find a bash binary of sufficient version (>=4).
+    """Find a bash binary of sufficient version (>=MIN_BASH_MAJOR).
 
     Returns the absolute path to a suitable bash, or "" if none found.
-    macOS's /bin/bash is 3.2 and is deliberately rejected — users need to
-    brew install bash (or similar) for cosyterm's install script to work.
+    Prefers Homebrew bash (newer) over /bin/bash (which is 3.2 on macOS) so
+    users who installed a modern bash get its bugfixes, but falls back to
+    /bin/bash 3.2 — setup.sh is authored to run under it.
     """
     candidates = ["/opt/homebrew/bin/bash", "/usr/local/bin/bash"]
-    # Also consider whatever `bash` resolves to on PATH — not /bin/bash, which
-    # we treat as the too-old fallback.
     path_bash = shutil.which("bash")
     if path_bash and path_bash not in ("/bin/bash", *candidates):
         candidates.append(path_bash)
+    candidates.append("/bin/bash")
 
     for candidate in candidates:
         if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
             if _bash_major_version(candidate) >= MIN_BASH_MAJOR:
                 return candidate
-
-    # Last-resort: accept /bin/bash if it's actually bash 4+ (e.g. some Linux
-    # distros). Most macOS users will fall through this branch.
-    if os.path.isfile("/bin/bash") and os.access("/bin/bash", os.X_OK):
-        if _bash_major_version("/bin/bash") >= MIN_BASH_MAJOR:
-            return "/bin/bash"
 
     return ""
 
@@ -69,19 +64,15 @@ def _check_bash() -> str:
 def _print_bash_hint() -> None:
     """Print actionable remediation when no suitable bash is found."""
     print(
-        "Error: bash >=4 is required but not found on your system.",
+        f"Error: bash >={MIN_BASH_MAJOR} is required but not found on your system.",
         file=sys.stderr,
     )
     if sys.platform == "darwin":
-        print(
-            "\nmacOS ships /bin/bash 3.2 which can't run the installer.",
-            file=sys.stderr,
-        )
-        print("Fix: install a newer bash via Homebrew:", file=sys.stderr)
+        print("\nInstall bash via Homebrew:", file=sys.stderr)
         print("  brew install bash", file=sys.stderr)
     else:
         print(
-            "\nInstall a newer bash via your package manager, e.g.:",
+            "\nInstall bash via your package manager, e.g.:",
             file=sys.stderr,
         )
         print("  sudo apt install bash     (Debian/Ubuntu)", file=sys.stderr)
