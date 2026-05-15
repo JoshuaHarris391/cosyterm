@@ -4,10 +4,10 @@
 # Based on: https://devcenter.upsun.com/posts/my-terminal-setup-mac-linux/
 # Author of original guide: Guillaume Moigneu (Upsun)
 #
-# Requires bash >= 4.0. On macOS, /bin/bash is 3.2 — the Python wrapper
-# (cosyterm.core._check_bash) gates this before invocation, so reaching this
-# script means bash 4+ is in effect. Safe to use associative arrays, ${var,,},
-# &>> redirection, readarray, etc.
+# Runs under bash 3.2+ — the macOS stock /bin/bash. Do NOT introduce bash-4-only
+# features here (associative arrays, ${var,,}, &>>, readarray/mapfile, wait -n,
+# coproc, etc.) without adding a fallback. Use functions instead of associative
+# arrays for keyed lookups (see font_lookup below).
 #
 # What this script installs & configures:
 #   1. Nerd Font (your choice)     — Monospace font with icons for terminal use

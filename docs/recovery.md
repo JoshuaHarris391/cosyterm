@@ -130,17 +130,23 @@ command -v pyenv >/dev/null; and status is-login; and pyenv init --path | source
 
 The same pattern protects any emitted command (`brew shellenv`, future version-manager integrations, etc.).
 
-### macOS: "bash >=4 is required" when running `cosyterm`
+### macOS: "bash >=3 is required" when running `cosyterm`
 
-**Cause.** macOS ships `/bin/bash` 3.2 for GPL-v2 licensing reasons; cosyterm's installer uses bash 4+ features (associative arrays, pattern substitution, etc.) and refuses to run under 3.2 rather than fail cryptically mid-script.
+**Cause.** cosyterm needs *some* `bash` binary to run its installer. macOS ships `/bin/bash` 3.2 (sufficient — `cosyterm` 0.4.1+ runs under it), so seeing this error means even `/bin/bash` is missing or unreadable. Earlier `cosyterm` (≤ 0.4.0) required bash 4+ and rejected the stock macOS bash; upgrade if you're on an older version.
 
-**Fix.** Install a modern bash via Homebrew:
+**Fix.** Upgrade `cosyterm` first:
+
+```sh
+pipx upgrade cosyterm   # or: pip install -U cosyterm
+```
+
+If `/bin/bash` is genuinely missing, install a modern bash via Homebrew:
 
 ```sh
 brew install bash
 ```
 
-You don't need to change your login shell — cosyterm's Python wrapper picks up `/opt/homebrew/bin/bash` automatically.
+You don't need to change your login shell — cosyterm's Python wrapper picks up whichever bash is available.
 
 ### PATH migration skipped my `mise` / `asdf` / `rbenv` activation
 
